@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DPI-Secure | Système d'Information Télémédecine</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Roboto+Mono:wght@400;500&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .mono { font-family: 'Roboto Mono', monospace; }
+    </style>
+</head>
+<body class="bg-slate-100 text-slate-800 min-h-screen flex flex-col">
+
+    <!-- Top Institutional Bar -->
+    <header class="bg-slate-900 text-slate-200 border-b border-slate-300">
+        <div class="max-w-7xl mx-auto px-4 py-2.5 flex justify-between items-center text-xs">
+            <div class="flex items-center space-x-3">
+                <span class="font-bold tracking-wide uppercase text-slate-100"><i class="fa-solid fa-hospital text-blue-400 mr-1.5"></i> Système de Télémédecine Sécurisé</span>
+                <span class="bg-slate-800 text-slate-400 px-2 py-0.5 rounded mono">PROTSEC-2026</span>
+            </div>
+            <div class="flex items-center space-x-4">
+                <span class="text-emerald-400"><i class="fa-solid fa-shield-halved mr-1"></i> TLS 1.3 / AES-256</span>
+                <span id="session-status-top" class="hidden text-slate-300 border-l border-slate-700 pl-4"></span>
+                <button id="btn-logout" onclick="logout()" class="hidden text-rose-400 hover:text-rose-300 transition font-medium">
+                    <i class="fa-solid fa-right-from-bracket mr-1"></i> Quitter
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Wrapper -->
+    <main class="flex-grow max-w-7xl w-full mx-auto p-4 md:p-6">
+
+        <!-- AUTHENTICATION CARD -->
+        <div id="view-auth" class="max-w-md mx-auto mt-12 bg-white rounded-lg border border-slate-300 shadow-sm overflow-hidden">
+            <div class="bg-slate-800 text-white px-6 py-4">
+                <h2 class="text-base font-semibold"><i class="fa-solid fa-lock text-blue-400 mr-2"></i> Authentification au Dossier Patient</h2>
+                <p class="text-xs text-slate-400 mt-0.5">Accès restreint aux professionnels de santé et patients habilités.</p>
+            </div>
+
+            <div class="p-6 space-y-4">
+                <!-- Helper de démo discret -->
+                <div class="bg-slate-50 p-3 rounded border border-slate-200 text-xs">
+                    <p class="font-medium text-slate-700 mb-2">Comptes de test (Sélection rapide) :</p>
+                    <div class="grid grid-cols-3 gap-2">
+                        <button onclick="fillForm('admin')" class="bg-white hover:bg-slate-100 border border-slate-300 py-1.5 px-2 rounded text-slate-700 font-medium transition text-center">Admin</button>
+                        <button onclick="fillForm('doctor')" class="bg-white hover:bg-slate-100 border border-slate-300 py-1.5 px-2 rounded text-slate-700 font-medium transition text-center">Médecin</button>
+                        <button onclick="fillForm('patient')" class="bg-white hover:bg-slate-100 border border-slate-300 py-1.5 px-2 rounded text-slate-700 font-medium transition text-center">Patient</button>
+                    </div>
+                </div>
+
+                <!-- Step 1: Login Form -->
+                <form id="form-step1" onsubmit="handleLogin(event)" class="space-y-3">
+                    <div>
+                        <label class="block text-xs font-semibold uppercase text-slate-600 mb-1">Identifiant professionnel / Email</label>
+                        <input type="email" id="login-email" required class="w-full bg-white border border-slate-300 rounded px-3 py-2 text-sm text-slate-800 focus:outline-none focus:border-blue-600">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold uppercase text-slate-600 mb-1">Mot de passe</label>
+                        <input type="password" id="login-password" required class="w-full bg-white border border-slate-300 rounded px-3 py-2 text-sm text-slate-800 focus:outline-none focus:border-blue-600">
+                    </div>
+                    <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 rounded text-sm transition mt-2">
+                        Poursuivre vers l'authentification MFA
+                    </button>
+                </form>
+
+                <!-- Step 2: MFA Form -->
+                <form id="form-step2" onsubmit="handleMfa(event)" class="space-y-3 hidden">
+                    <div class="bg-blue-50 border border-blue-200 p-3 rounded text-xs text-blue-900 space-y-1">
+                        <p class="font-semibold"><i class="fa-solid fa-mobile-screen-button mr-1"></i> Second Facteur (MFA)</p>
+                        <p class="text-blue-700">Code OTP simulé pour valider la session : <strong id="otp-display" class="mono text-slate-900"></strong></p>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold uppercase text-slate-600 mb-1">Code de validation (6 chiffres)</label>
+                        <input type="text" id="mfa-input" maxlength="6" required class="w-full mono text-center tracking-widest text-lg bg-white border border-slate-300 rounded px-3 py-2 text-slate-800 focus:outline-none focus:border-blue-600" placeholder="000000">
+                    </div>
+                    <div class="flex space-x-2 pt-1">
+                        <button type="button" onclick="resetAuth()" class="w-1/3 bg-slate-200 hover:bg-slate-300 text-slate-700 font-medium py-2 rounded text-xs transition">Retour</button>
+                        <button type="submit" class="w-2/3 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 rounded text-xs transition">Valider l'accès</button>
+                    </div>
+                </form>
+
+                <div id="auth-error" class="bg-rose-50 border border-rose-200 text-rose-700 p-2.5 rounded text-xs hidden"></div>
+            </div>
+        </div>
+
+        <!-- DASHBOARD VIEW -->
+        <div id="view-dashboard" class="space-y-6 hidden">
+            
+            <!-- Context Bar / User Info -->
+            <div class="bg-white p-4 rounded-lg border border-slate-300 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div>
+                    <h3 id="dash-user-title" class="text-base font-bold text-slate-900"></h3>
+                    <p class="text-xs text-slate-500 mt-0.5">Habilitation RBAC : <span id="dash-user-role" class="font-semibold text-blue-600"></span></p>
+                </div>
+                <div class="flex items-center space-x-3 text-xs">
+                    <span class="bg-slate-100 border border-slate-300 px-3 py-1.5 rounded text-slate-700">Stockage : <strong class="text-slate-900">AES-256</strong></span>
+                </div>
+            </div>
+
+            <!-- Patient Consent Control (Visible only to Patients) -->
+            <div id="panel-consent" class="bg-white p-4 rounded-lg border border-slate-300 shadow-sm hidden">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h4 class="text-sm font-bold text-slate-900">Consentement au partage du dossier médical</h4>
+                        <p class="text-xs text-slate-500 mt-0.5">Autoriser les médecins traitants à consulter les données cliniques chiffrées.</p>
+                    </div>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="consent-checkbox" checked onchange="toggleConsent(this.checked)" class="sr-only peer">
+                        <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                        <span id="consent-text" class="ml-3 text-xs font-semibold text-emerald-700">Consentement actif</span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Medical Record Box -->
+            <div class="bg-white rounded-lg border border-slate-300 shadow-sm overflow-hidden">
+                <div class="bg-slate-50 border-b border-slate-200 px-4 py-3 flex justify-between items-center">
+                    <h4 class="text-xs font-bold uppercase text-slate-700 tracking-wider"><i class="fa-solid fa-file-medical text-blue-600 mr-1.5"></i> Dossier Clinique Informatisé</h4>
+                    <span class="text-xs mono bg-slate-200 px-2 py-0.5 rounded text-slate-600">ID: PATIENT-001</span>
+                </div>
+                <div id="medical-record-content" class="p-6 text-sm">
+                    <!-- Contenu injecté dynamiquement -->
+                </div>
+            </div>
+
+            <!-- Admin Audit Logs Panel (Visible only to Admin) -->
+            <div id="panel-audit" class="bg-white rounded-lg border border-slate-300 shadow-sm overflow-hidden hidden">
+                <div class="bg-slate-50 border-b border-slate-200 px-4 py-3 flex justify-between items-center">
+                    <h4 class="text-xs font-bold uppercase text-slate-700 tracking-wider"><i class="fa-solid fa-list text-slate-600 mr-1.5"></i> Journal d'Audit et Traçabilité (RBAC Administrateur)</h4>
+                    <span class="text-xs text-slate-500">Stockage sécurisé des logs</span>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-xs">
+                        <thead class="bg-slate-100 text-slate-600 uppercase border-b border-slate-200 mono">
+                            <tr>
+                                <th class="p-3">Horodatage</th>
+                                <th class="p-3">Utilisateur</th>
+                                <th class="p-3">Rôle</th>
+                                <th class="p-3">Action</th>
+                                <th class="p-3">Statut</th>
+                            </tr>
+                        </thead>
+                        <tbody id="audit-table-body" class="divide-y divide-slate-200 mono">
+                            <!-- Logs dynamiques -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+        </div>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="mt-auto bg-white border-t border-slate-300 py-3 text-center text-xs text-slate-500">
+        <p>Plateforme de Télémédecine Académique - M1 Sécurité Réseau (2026)</p>
+    </footer>
+
+    <!-- Script logique -->
+    <script>
+        let currentSession = null;
+        let generatedOtp = "";
+        let pendingEmail = "";
+        let patientConsentGranted = true;
+
+        const mockDb = {
+            accounts: [
+                { email: 'admin@telemed.test', pass: 'Admin2026!', role: 'Administrateur', name: 'Dr. Administrateur (SecOps)' },
+                { email: 'docteur@telemed.test', pass: 'Doc2026!', role: 'Médecin', name: 'Dr. Jean Kouakou (Praticien)' },
+                { email: 'patient@telemed.test', pass: 'Patient2026!', role: 'Patient', name: 'Patient Alpha (Dossier #001)' }
+            ],
+            record: {
+                diagnostic: 'Hypertension artérielle modérée - Suivi cardiologique',
+                prescription: 'Amlodipine 5mg - 1 prise par jour',
+                notes: 'Tension artérielle mesurée à 135/85 mmHg lors de la dernière téléconsultation.'
+            }
+        };
+
+        const auditLogs = [
+            { timestamp: new Date(Date.now() - 3600000).toLocaleTimeString(), email: 'sys-daemon', role: 'System', action: 'Démarrage du service de chiffrement AES', status: 'SUCCÈS' },
+            { timestamp: new Date(Date.now() - 1800000).toLocaleTimeString(), email: 'admin@telemed.test', role: 'Administrateur', action: 'Contrôle d\'intégrité des tables', status: 'SUCCÈS' }
+        ];
+
+        function fillForm(type) {
+            if (type === 'admin') {
+                document.getElementById('login-email').value = 'admin@telemed.test';
+                document.getElementById('login-password').value = 'Admin2026!';
+            } else if (type === 'doctor') {
+                document.getElementById('login-email').value = 'docteur@telemed.test';
+                document.getElementById('login-password').value = 'Doc2026!';
+            } else if (type === 'patient') {
+                document.getElementById('login-email').value = 'patient@telemed.test';
+                document.getElementById('login-password').value = 'Patient2026!';
+            }
+        }
+
+        function handleLogin(e) {
+            e.preventDefault();
+            const email = document.getElementById('login-email').value;
+            const pass = document.getElementById('login-password').value;
+            const errBox = document.getElementById('auth-error');
+            errBox.classList.add('hidden');
+
+            const found = mockDb.accounts.find(a => a.email === email && a.pass === pass);
+            if (!found) {
+                errBox.textContent = "Identifiants invalides. Vérifiez vos paramètres de connexion.";
+                errBox.classList.remove('hidden');
+                pushAudit(email || 'Inconnu', 'Inconnu', 'Tentative de connexion', 'ÉCHEC');
+                return;
+            }
+
+            pendingEmail = email;
+            generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
+
+            document.getElementById('form-step1').classList.add('hidden');
+            document.getElementById('form-step2').classList.remove('hidden');
+            document.getElementById('otp-display').textContent = generatedOtp;
+            pushAudit(email, found.role, 'Étape 1 validée / En attente MFA', 'EN_COURS');
+        }
+
+        function handleMfa(e) {
+            e.preventDefault();
+            const code = document.getElementById('mfa-input').value;
+            const errBox = document.getElementById('auth-error');
+
+            if (code !== generatedOtp) {
+                errBox.textContent = "Code de validation MFA erroné.";
+                errBox.classList.remove('hidden');
+                pushAudit(pendingEmail, 'En attente', 'Validation MFA', 'ÉCHEC');
+                return;
+            }
+
+            currentSession = mockDb.accounts.find(a => a.email === pendingEmail);
+            pushAudit(currentSession.email, currentSession.role, 'Authentification MFA réussie', 'SUCCÈS');
+            initDashboard();
+        }
+
+        function resetAuth() {
+            document.getElementById('form-step2').classList.add('hidden');
+            document.getElementById('form-step1').classList.remove('hidden');
+            document.getElementById('mfa-input').value = '';
+            document.getElementById('auth-error').classList.add('hidden');
+        }
+
+        function initDashboard() {
+            document.getElementById('view-auth').classList.add('hidden');
+            document.getElementById('view-dashboard').classList.remove('hidden');
+            document.getElementById('btn-logout').classList.remove('hidden');
+            
+            const topStatus = document.getElementById('session-status-top');
+            topStatus.textContent = `Connecté : ${currentSession.email} (${currentSession.role})`;
+            topStatus.classList.remove('hidden');
+
+            document.getElementById('dash-user-title').textContent = currentSession.name;
+            document.getElementById('dash-user-role').textContent = currentSession.role;
+
+            if (currentSession.role === 'Patient') {
+                document.getElementById('panel-consent').classList.remove('hidden');
+            }
+            if (currentSession.role === 'Administrateur') {
+                document.getElementById('panel-audit').classList.remove('hidden');
+                renderAuditLogs();
+            }
+
+            renderMedicalRecord();
+        }
+
+        function renderMedicalRecord() {
+            const box = document.getElementById('medical-record-content');
+            
+            if (currentSession.role === 'Patient') {
+                box.innerHTML = `
+                    <div class="space-y-3">
+                        <div class="p-3 bg-slate-50 border border-slate-200 rounded">
+                            <p class="text-xs text-slate-500 font-semibold uppercase">Diagnostic enregistré</p>
+                            <p class="text-slate-800 mt-1">${mockDb.record.diagnostic}</p>
+                        </div>
+                        <div class="p-3 bg-slate-50 border border-slate-200 rounded">
+                            <p class="text-xs text-slate-500 font-semibold uppercase">Prescription médicale</p>
+                            <p class="text-slate-800 mt-1">${mockDb.record.prescription}</p>
+                        </div>
+                        <div class="p-3 bg-slate-50 border border-slate-200 rounded">
+                            <p class="text-xs text-slate-500 font-semibold uppercase">Notes cliniques du praticien</p>
+                            <p class="text-slate-800 mt-1">${mockDb.record.notes}</p>
+                        </div>
+                    </div>
+                `;
+            } else if (currentSession.role === 'Médecin') {
+                if (!patientConsentGranted) {
+                    box.innerHTML = `
+                        <div class="p-4 bg-amber-50 border border-amber-200 rounded text-amber-800 text-xs">
+                            <p class="font-bold"><i class="fa-solid fa-triangle-exclamation mr-1"></i> Accès restreint par le patient</p>
+                            <p class="mt-1">Le patient n'a pas consenti au partage de ses données personnelles pour cette session de télémédecine.</p>
+                        </div>
+                    `;
+                } else {
+                    box.innerHTML = `
+                        <div class="space-y-3">
+                            <div class="p-3 bg-slate-50 border border-slate-200 rounded">
+                                <p class="text-xs text-slate-500 font-semibold uppercase">Diagnostic validé</p>
+                                <p class="text-slate-800 mt-1">${mockDb.record.diagnostic}</p>
+                            </div>
+                            <div class="p-3 bg-slate-50 border border-slate-200 rounded">
+                                <p class="text-xs text-slate-500 font-semibold uppercase">Traitement en cours</p>
+                                <p class="text-slate-800 mt-1">${mockDb.record.prescription}</p>
+                            </div>
+                            <div class="p-3 bg-slate-50 border border-slate-200 rounded">
+                                <p class="text-xs text-slate-500 font-semibold uppercase">Historique et observations</p>
+                                <p class="text-slate-800 mt-1">${mockDb.record.notes}</p>
+                            </div>
+                        </div>
+                    `;
+                }
+            } else if (currentSession.role === 'Administrateur') {
+                box.innerHTML = `
+                    <div class="space-y-2 text-xs text-slate-600">
+                        <p class="font-semibold text-slate-800">Conformité RGPD & Minimisation des données :</p>
+                        <p>En tant qu'administrateur système, le contenu clinique du dossier est masqué pour garantir le secret médical (cloisonnement RBAC).</p>
+                        <p class="mt-2">État du consentement patient : <strong class="${patientConsentGranted ? 'text-emerald-700' : 'text-rose-700'}">${patientConsentGranted ? 'Accordé' : 'Refusé'}</strong></p>
+                    </div>
+                `;
+            }
+        }
+
+        function toggleConsent(status) {
+            patientConsentGranted = status;
+            const lbl = document.getElementById('consent-text');
+            lbl.textContent = status ? "Consentement actif" : "Consentement révoqué";
+            lbl.className = status ? "ml-3 text-xs font-semibold text-emerald-700" : "ml-3 text-xs font-semibold text-rose-700";
+
+            pushAudit(currentSession.email, currentSession.role, `Mise à jour du consentement : ${status ? 'Actif' : 'Révoqué'}`, 'SUCCÈS');
+            if (currentSession.role === 'Administrateur') renderAuditLogs();
+            renderMedicalRecord();
+        }
+
+        function pushAudit(email, role, action, status) {
+            auditLogs.unshift({
+                timestamp: new Date().toLocaleTimeString(),
+                email,
+                role,
+                action,
+                status
+            });
+            if (currentSession && currentSession.role === 'Administrateur') {
+                renderAuditLogs();
+            }
+        }
+
+        function renderAuditLogs() {
+            const tbody = document.getElementById('audit-table-body');
+            tbody.innerHTML = '';
+            auditLogs.forEach(log => {
+                let tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td class="p-3 text-slate-600">${log.timestamp}</td>
+                    <td class="p-3 text-slate-800">${log.email}</td>
+                    <td class="p-3 text-blue-700 font-semibold">${log.role}</td>
+                    <td class="p-3 text-slate-700">${log.action}</td>
+                    <td class="p-3"><span class="px-2 py-0.5 rounded text-[10px] ${log.status.includes('SUCCÈS') ? 'bg-emerald-100 text-emerald-800 font-semibold' : 'bg-rose-100 text-rose-800 font-semibold'}">${log.status}</span></td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function logout() {
+            currentSession = null;
+            window.location.reload();
+        }
+    </script>
+</body>
+</html>
