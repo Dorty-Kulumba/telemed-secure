@@ -19,7 +19,7 @@ if not TOTP_SECRET:
 from database import engine, Base, get_db
 from models import Utilisateur, DossierMedical, Consentement, JournalAudit
 from schemas import UserCreate, UserLogin, MFAVerify, DossierCreate, ConsentUpdate
-from .security import (
+from security import (
     hash_password, verify_password, create_access_token,
     verify_access_token, verify_totp_code, generate_totp_secret,
     encrypt_medical_record, decrypt_medical_record
