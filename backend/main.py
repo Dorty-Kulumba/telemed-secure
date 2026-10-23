@@ -16,7 +16,7 @@ if not SECRET_KEY:
 if not TOTP_SECRET:
     raise RuntimeError("TOTP_SECRET absente du fichier .env")
 
-from .database import engine, Base, get_db
+from database import engine, Base, get_db
 from .models import Utilisateur, DossierMedical, Consentement, JournalAudit
 from .schemas import UserCreate, UserLogin, MFAVerify, DossierCreate, ConsentUpdate
 from .security import (
