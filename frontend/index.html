@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Telemed Secure - Connexion</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <!-- SECTION CONNEXION -->
+    <div id="login-section" class="container">
+        <div class="logo-container">
+            <div class="logo-icon">+</div>
+            <h2>Telemed Secure</h2>
+            <p class="subtitle">Bienvenue sur la plateforme</p>
+        </div>
+        <form id="login-form">
+            <div class="form-group">
+                <label>Adresse e-mail ou téléphone</label>
+                <input type="email" id="email" required placeholder="telemedsecure@gmail.com">
+            </div>
+            <div class="form-group">
+                <label>Mot de passe</label>
+                <input type="password" id="password" required placeholder="••••••••">
+            </div>
+            <button type="submit" class="btn">Se connecter</button>
+            <div id="login-error" class="error-msg"></div>
+        </form>
+    </div>
+
+    <!-- SECTION MFA / TOTP -->
+    <div id="mfa-section" class="container" style="display: none;">
+        <div class="logo-container">
+            <div class="logo-icon">🔒</div>
+            <h2>Authentification multifacteur</h2>
+            <p class="subtitle">Vérifiez votre identité pour continuer.</p>
+        </div>
+        <form id="mfa-form">
+            <div class="form-group">
+                <label style="text-align: center;">Code de vérification</label>
+                <input type="text" id="totp-code" maxlength="6" required placeholder="000000" style="text-align: center; font-size: 22px; letter-spacing: 6px;">
+            </div>
+            <button type="submit" class="btn">Vérifier le code</button>
+            <div id="mfa-error" class="error-msg"></div>
+        </form>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

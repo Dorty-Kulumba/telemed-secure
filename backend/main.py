@@ -1,4 +1,5 @@
 import os
+from fastapi.staticfiles import StaticFiles
 from fastapi import FastAPI, Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
@@ -32,6 +33,10 @@ security = HTTPBearer()
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Telemed Secure API", version="1.0.0")
+# Intégration du dossier Frontend
+frontend_path = os.path.join(os.path.dirname(__file__), "..", "frontend")
+if os.path.exists(frontend_path):
+    app.mount("/frontend", StaticFiles(directory=frontend_path, html=True), name="frontend")
 
 # Configuration CORS pour autoriser le frontend
 app.add_middleware(
