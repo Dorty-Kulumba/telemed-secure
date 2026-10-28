@@ -1,7 +1,6 @@
 import os
 from fastapi import FastAPI, Depends, HTTPException, status, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
@@ -44,20 +43,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Intégration du dossier Frontend et des fichiers statiques
+# Intégration et service direct du dossier Frontend à la racine pour charger index.html, CSS et JS
 frontend_path = os.path.join(os.path.dirname(__file__), "..", "frontend")
 
 if os.path.exists(frontend_path):
-    # Monte le dossier frontend pour accéder aux CSS/JS via /frontend/...
-    app.mount("/frontend", StaticFiles(directory=frontend_path, html=True), name="frontend")
-
-# Route racine (/) : Sert directement votre interface de télémédecine (index.html)
-@app.get("/")
-def read_index():
-    index_file = os.path.join(frontend_path, "index.html")
-    if os.path.exists(index_file):
-        return FileResponse(index_file)
-    return {"message": "Bienvenue sur l'API Telemed Secure - Frontend non trouvé"}
+    app.mount("/", StaticFiles(directory=frontend_path, html=True), name="frontend")
 
 # 1. Inscription d'un utilisateur
 @app.post("/api/register")
