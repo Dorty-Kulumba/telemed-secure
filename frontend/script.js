@@ -46,6 +46,24 @@ function setBusy(form, busy) {
 }
 
 function initializeAuthentication() {
+    const setMfaMode = (useRecoveryCode) => {
+        const totpGroup = document.getElementById("mfa-totp-group");
+        const recoveryGroup = document.getElementById("mfa-recovery-group");
+        const totpInput = document.getElementById("mfa-code");
+        const recoveryInput = document.getElementById("mfa-recovery-code");
+        const toggle = document.getElementById("toggle-recovery-code");
+        if (!totpGroup || !recoveryGroup || !totpInput || !recoveryInput || !toggle) return;
+
+        totpGroup.classList.toggle("hidden", useRecoveryCode);
+        recoveryGroup.classList.toggle("hidden", !useRecoveryCode);
+        totpInput.required = !useRecoveryCode;
+        recoveryInput.required = useRecoveryCode;
+        totpInput.value = "";
+        recoveryInput.value = "";
+        toggle.textContent = useRecoveryCode ? "Utiliser un code MFA" : "Utiliser un code de secours";
+        (useRecoveryCode ? recoveryInput : totpInput).focus();
+    };
+
     document.querySelectorAll("[data-view]").forEach((button) => {
         button.addEventListener("click", () => {
             if (button.dataset.view === "login-section" && document.getElementById("mfa-section") && !document.getElementById("mfa-section").classList.contains("hidden")) {
@@ -75,7 +93,7 @@ function initializeAuthentication() {
             }
             sessionStorage.setItem("pending_mfa_token", data.challenge_token);
             sessionStorage.removeItem("jwt_token");
-            document.getElementById("mfa-code").value = "";
+            setMfaMode(false);
             setMessage("mfa-message", "");
             showSection("mfa-section");
             document.getElementById("mfa-code").focus();
@@ -138,6 +156,11 @@ function initializeAuthentication() {
     });
 
     const mfaForm = document.getElementById("form-mfa");
+    document.getElementById("toggle-recovery-code")?.addEventListener("click", () => {
+        const usingRecoveryCode = !document.getElementById("mfa-recovery-group")?.classList.contains("hidden");
+        setMfaMode(!usingRecoveryCode);
+    });
+
     mfaForm?.addEventListener("submit", async (event) => {
         event.preventDefault();
         setMessage("mfa-message", "");
@@ -150,12 +173,15 @@ function initializeAuthentication() {
             return;
         }
 
-        const code_totp = document.getElementById("mfa-code").value.trim();
+        const usingRecoveryCode = !document.getElementById("mfa-recovery-group")?.classList.contains("hidden");
+        const code = usingRecoveryCode
+            ? { recovery_code: document.getElementById("mfa-recovery-code").value.trim() }
+            : { code_totp: document.getElementById("mfa-code").value.trim() };
         setBusy(mfaForm, true);
         try {
             const { response, data } = await apiRequest("/api/mfa/verify", {
                 method: "POST",
-                body: JSON.stringify({ challenge_token, code_totp }),
+                body: JSON.stringify({ challenge_token, ...code }),
             });
             if (!response.ok) {
                 setMessage("mfa-message", errorText(data.detail, "Code invalide. Vérifiez-le et réessayez."));
@@ -209,33 +235,439 @@ async function initDashboard() {
 
         const roleContent = document.getElementById("role-content");
         roleContent.replaceChildren();
-        if (data.role === "Patient") {
-            addTextCard(roleContent, "Votre compte est prêt", "Votre espace patient est sécurisé par un mot de passe et un code d'authentification.");
-            addTextCard(roleContent, "Données médicales", "Les dossiers sont chiffrés lors de leur enregistrement. Les fonctions de consultation et de partage seront ajoutées dans une prochaine version.");
-        } else if (data.role === "Médecin" || data.role === "Spécialiste") {
-            addTextCard(roleContent, "Espace praticien", "La création d'un dossier médical exige le consentement explicite du patient.");
-        } else if (data.role === "Administrateur") {
-            const card = document.createElement("article");
-            card.className = "card";
-            const heading = document.createElement("h3");
-            heading.textContent = "Journal d'audit";
-            const button = document.createElement("button");
-            button.type = "button";
-            button.className = "btn";
-            button.textContent = "Charger le journal";
-            const logs = document.createElement("pre");
-            logs.className = "audit-output";
-            button.addEventListener("click", () => fetchAuditLogs(logs, button));
-            card.append(heading, button, logs);
-            roleContent.append(card);
-        } else {
-            sessionStorage.removeItem("jwt_token");
-            window.location.replace("index.html");
+        if (data.mot_de_passe_a_changer) {
+            renderForcedPasswordChange(roleContent, token);
+            return;
+        }
+
+        try {
+            if (data.role === "Patient") {
+                await renderPatientDashboard(roleContent, token);
+            } else if (data.role === "Médecin" || data.role === "Spécialiste") {
+                await renderPractitionerDashboard(roleContent, token);
+            } else if (data.role === "Administrateur") {
+                await renderAdminDashboard(roleContent, token, data.id);
+            } else {
+                sessionStorage.removeItem("jwt_token");
+                window.location.replace("index.html");
+            }
+            renderRecoveryCodeTools(roleContent, token);
+        } catch (error) {
+            addTextCard(roleContent, "Chargement impossible", error.message || "Réessayez dans un instant.");
         }
     } catch {
         const status = document.getElementById("dashboard-message");
         if (status) status.textContent = "Impossible de charger votre espace. Vérifiez votre connexion.";
     }
+}
+
+async function dashboardRequest(path, token, options = {}) {
+    const { response, data } = await apiRequest(path, { ...options, token });
+    if (!response.ok) {
+        throw new Error(errorText(data.detail, "La demande a échoué."));
+    }
+    return data;
+}
+
+function createDashboardCard(title, description = "") {
+    const card = document.createElement("article");
+    card.className = "card";
+    const heading = document.createElement("h3");
+    heading.textContent = title;
+    card.append(heading);
+    if (description) {
+        const paragraph = document.createElement("p");
+        paragraph.textContent = description;
+        card.append(paragraph);
+    }
+    return card;
+}
+
+function createFormField(parent, labelText, name, options = {}) {
+    const group = document.createElement("div");
+    group.className = "form-group";
+    const label = document.createElement("label");
+    const input = document.createElement(options.multiline ? "textarea" : options.select ? "select" : "input");
+    const inputId = `field-${name}-${Math.random().toString(36).slice(2, 9)}`;
+    input.id = inputId;
+    input.name = name;
+    label.htmlFor = inputId;
+    label.textContent = labelText;
+    if (options.type && input.tagName === "INPUT") input.type = options.type;
+    if (options.required) input.required = true;
+    if (options.maxLength) input.maxLength = options.maxLength;
+    if (options.minLength) input.minLength = options.minLength;
+    if (options.placeholder) input.placeholder = options.placeholder;
+    if (options.autocomplete) input.autocomplete = options.autocomplete;
+    if (options.select) {
+        options.select.forEach(({ value, label: optionLabel }) => {
+            const option = document.createElement("option");
+            option.value = value;
+            option.textContent = optionLabel;
+            input.append(option);
+        });
+    }
+    group.append(label, input);
+    parent.append(group);
+    return input;
+}
+
+function showCardMessage(card, message, isSuccess = false) {
+    let notice = card.querySelector(".status-message");
+    if (!notice) {
+        notice = document.createElement("p");
+        notice.className = "status-message";
+        notice.setAttribute("role", "status");
+        notice.setAttribute("aria-live", "polite");
+        card.append(notice);
+    }
+    notice.textContent = message;
+    notice.classList.toggle("success", isSuccess);
+}
+
+function appendOneTimeCredentials(card, result) {
+    const box = document.createElement("div");
+    box.className = "one-time-result";
+    const title = document.createElement("p");
+    title.textContent = "Informations à transmettre au titulaire par un canal privé. Elles ne seront plus affichées après cette page.";
+    const output = document.createElement("pre");
+    output.className = "audit-output";
+    output.textContent = JSON.stringify({
+        compte: result.compte,
+        mot_de_passe_temporaire: result.mot_de_passe_temporaire,
+        mfa: result.mfa,
+        codes_de_secours: result.codes_de_secours,
+    }, null, 2);
+    box.append(title, output);
+    card.append(box);
+}
+
+function renderRecords(container, records, emptyMessage) {
+    container.replaceChildren();
+    if (!records.length) {
+        const empty = document.createElement("p");
+        empty.textContent = emptyMessage;
+        container.append(empty);
+        return;
+    }
+    records.forEach((record) => {
+        const entry = document.createElement("article");
+        entry.className = "record-entry";
+        const date = document.createElement("strong");
+        date.textContent = record.date_creation ? new Date(record.date_creation).toLocaleString("fr-FR") : "Date inconnue";
+        const content = document.createElement("p");
+        content.textContent = record.contenu;
+        entry.append(date, content);
+        container.append(entry);
+    });
+}
+
+function renderForcedPasswordChange(container, token) {
+    const card = createDashboardCard("Choisissez votre mot de passe", "Votre mot de passe temporaire doit être remplacé avant d'accéder au reste de l'espace.");
+    card.classList.add("forced-password-card");
+    const form = document.createElement("form");
+    const current = createFormField(form, "Mot de passe temporaire", "mot_de_passe_actuel", { type: "password", required: true, maxLength: 72, autocomplete: "current-password" });
+    const next = createFormField(form, "Nouveau mot de passe (12 caractères minimum)", "nouveau_mot_de_passe", { type: "password", required: true, minLength: 12, maxLength: 72, autocomplete: "new-password" });
+    const submit = document.createElement("button");
+    submit.type = "submit";
+    submit.className = "btn";
+    submit.textContent = "Mettre à jour le mot de passe";
+    form.append(submit);
+    form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        if (!form.reportValidity()) return;
+        submit.disabled = true;
+        try {
+            const result = await dashboardRequest("/api/account/password", token, {
+                method: "PUT",
+                body: JSON.stringify({ mot_de_passe_actuel: current.value, nouveau_mot_de_passe: next.value }),
+            });
+            sessionStorage.setItem("jwt_token", result.access_token);
+            showCardMessage(card, "Mot de passe modifié. Ouverture de votre espace…", true);
+            window.setTimeout(() => window.location.reload(), 400);
+        } catch (error) {
+            showCardMessage(card, error.message);
+            submit.disabled = false;
+        }
+    });
+    card.append(form);
+    container.append(card);
+}
+
+async function renderPatientDashboard(container, token) {
+    const [practitioners, consents, records] = await Promise.all([
+        dashboardRequest("/api/praticiens", token),
+        dashboardRequest("/api/consentements", token),
+        dashboardRequest("/api/dossiers/moi", token),
+    ]);
+    const consentByPractitioner = new Map(consents.map((consent) => [consent.medecin_id, consent.statut]));
+
+    const consentCard = createDashboardCard("Gérer les accès", "Autorisez un praticien à consulter vos dossiers, ou révoquez son accès.");
+    if (!practitioners.length) {
+        const empty = document.createElement("p");
+        empty.textContent = "Aucun praticien actif n'est disponible pour le moment.";
+        consentCard.append(empty);
+    } else {
+        const form = document.createElement("form");
+        const practitionerSelect = createFormField(form, "Praticien", "medecin_id", {
+            required: true,
+            select: practitioners.map((person) => ({ value: String(person.id), label: `${person.prenom} ${person.nom}` })),
+        });
+        const consentSelect = createFormField(form, "Autorisation", "statut", {
+            required: true,
+            select: [
+                { value: "true", label: "Autoriser l'accès" },
+                { value: "false", label: "Révoquer l'accès" },
+            ],
+        });
+        const syncConsent = () => {
+            const current = consentByPractitioner.get(Number(practitionerSelect.value));
+            consentSelect.value = current ? "true" : "false";
+        };
+        practitionerSelect.addEventListener("change", syncConsent);
+        syncConsent();
+        const submit = document.createElement("button");
+        submit.type = "submit";
+        submit.className = "btn";
+        submit.textContent = "Enregistrer mon choix";
+        form.append(submit);
+        form.addEventListener("submit", async (event) => {
+            event.preventDefault();
+            submit.disabled = true;
+            try {
+                await dashboardRequest("/api/consentements", token, {
+                    method: "PUT",
+                    body: JSON.stringify({ medecin_id: Number(practitionerSelect.value), statut: consentSelect.value === "true" }),
+                });
+                consentByPractitioner.set(Number(practitionerSelect.value), consentSelect.value === "true");
+                showCardMessage(consentCard, "Votre choix a été enregistré.", true);
+            } catch (error) {
+                showCardMessage(consentCard, error.message);
+            } finally {
+                submit.disabled = false;
+            }
+        });
+        consentCard.append(form);
+    }
+    container.append(consentCard);
+
+    const recordsCard = createDashboardCard("Mes dossiers médicaux", "Les dossiers ne sont visibles que par vous et par les praticiens auxquels vous avez donné accès.");
+    const recordsList = document.createElement("div");
+    recordsList.className = "records-list";
+    renderRecords(recordsList, records, "Aucun dossier médical n'a été ajouté.");
+    recordsCard.append(recordsList);
+    container.append(recordsCard);
+}
+
+async function renderPractitionerDashboard(container, token) {
+    const patients = await dashboardRequest("/api/patients-consentis", token);
+    const card = createDashboardCard("Patients ayant donné leur accord", "Vous pouvez consulter leurs dossiers et en ajouter un nouveau tant que leur autorisation reste active.");
+    if (!patients.length) {
+        const empty = document.createElement("p");
+        empty.textContent = "Aucun patient ne vous a encore autorisé à consulter ses dossiers.";
+        card.append(empty);
+        container.append(card);
+        return;
+    }
+
+    const patientSelect = createFormField(card, "Patient", "patient_id", {
+        required: true,
+        select: patients.map((patient) => ({ value: String(patient.id), label: `${patient.prenom} ${patient.nom}` })),
+    });
+    const recordsList = document.createElement("div");
+    recordsList.className = "records-list";
+    card.append(recordsList);
+    const loadRecords = async () => {
+        recordsList.textContent = "Chargement des dossiers…";
+        try {
+            const records = await dashboardRequest(`/api/patients/${encodeURIComponent(patientSelect.value)}/dossiers`, token);
+            renderRecords(recordsList, records, "Aucun dossier n'a été ajouté pour ce patient.");
+        } catch (error) {
+            recordsList.textContent = error.message;
+        }
+    };
+    patientSelect.addEventListener("change", loadRecords);
+    await loadRecords();
+    container.append(card);
+
+    const createCard = createDashboardCard("Ajouter un dossier", "Le contenu sera chiffré avant son enregistrement.");
+    const form = document.createElement("form");
+    const recordPatient = createFormField(form, "Patient", "patient_id", {
+        required: true,
+        select: patients.map((patient) => ({ value: String(patient.id), label: `${patient.prenom} ${patient.nom}` })),
+    });
+    const content = createFormField(form, "Contenu du dossier", "contenu", { required: true, maxLength: 100000, multiline: true });
+    const submit = document.createElement("button");
+    submit.type = "submit";
+    submit.className = "btn";
+    submit.textContent = "Enregistrer le dossier";
+    form.append(submit);
+    form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        if (!form.reportValidity()) return;
+        submit.disabled = true;
+        try {
+            await dashboardRequest("/api/dossiers", token, {
+                method: "POST",
+                body: JSON.stringify({ patient_id: Number(recordPatient.value), contenu: content.value.trim() }),
+            });
+            content.value = "";
+            showCardMessage(createCard, "Dossier enregistré et chiffré.", true);
+            if (patientSelect.value === recordPatient.value) await loadRecords();
+        } catch (error) {
+            showCardMessage(createCard, error.message);
+        } finally {
+            submit.disabled = false;
+        }
+    });
+    createCard.append(form);
+    container.append(createCard);
+}
+
+async function renderAdminDashboard(container, token, currentUserId) {
+    const createCard = createDashboardCard("Créer un compte professionnel", "Le titulaire devra remplacer son mot de passe temporaire à sa première connexion.");
+    const form = document.createElement("form");
+    createFormField(form, "Nom", "nom", { required: true, maxLength: 100 });
+    createFormField(form, "Prénom", "prenom", { required: true, maxLength: 100 });
+    createFormField(form, "Adresse e-mail", "email", { type: "email", required: true, maxLength: 150 });
+    createFormField(form, "Téléphone (facultatif)", "telephone", { type: "tel", maxLength: 50 });
+    const role = createFormField(form, "Rôle", "role", {
+        required: true,
+        select: [
+            { value: "Médecin", label: "Médecin" },
+            { value: "Spécialiste", label: "Spécialiste" },
+            { value: "Administrateur", label: "Administrateur" },
+        ],
+    });
+    const submit = document.createElement("button");
+    submit.type = "submit";
+    submit.className = "btn";
+    submit.textContent = "Créer le compte";
+    form.append(submit);
+    form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        if (!form.reportValidity()) return;
+        submit.disabled = true;
+        const controls = Object.fromEntries(new FormData(form).entries());
+        try {
+            const result = await dashboardRequest("/api/admin/users", token, { method: "POST", body: JSON.stringify(controls) });
+            appendOneTimeCredentials(createCard, result);
+            showCardMessage(createCard, "Compte professionnel créé.", true);
+            form.reset();
+            await refreshAdminUsers(usersList, token, currentUserId);
+        } catch (error) {
+            showCardMessage(createCard, error.message);
+        } finally {
+            submit.disabled = false;
+        }
+    });
+    createCard.append(form);
+    container.append(createCard);
+
+    const usersCard = createDashboardCard("Comptes utilisateurs", "Les identifiants temporaires et les clés MFA ne sont montrés qu'au moment de la création ou de la réinitialisation.");
+    const usersList = document.createElement("div");
+    usersList.className = "users-list";
+    usersCard.append(usersList);
+    container.append(usersCard);
+    await refreshAdminUsers(usersList, token, currentUserId);
+
+    const auditCard = createDashboardCard("Journal d'audit", "Les 500 actions les plus récentes.");
+    const auditButton = document.createElement("button");
+    auditButton.type = "button";
+    auditButton.className = "btn btn-secondary";
+    auditButton.textContent = "Charger le journal";
+    const logs = document.createElement("pre");
+    logs.className = "audit-output";
+    auditButton.addEventListener("click", () => fetchAuditLogs(logs, auditButton));
+    auditCard.append(auditButton, logs);
+    container.append(auditCard);
+}
+
+async function refreshAdminUsers(list, token, currentUserId) {
+    try {
+        const users = await dashboardRequest("/api/admin/users", token);
+        list.replaceChildren();
+        users.forEach((user) => {
+            const row = document.createElement("article");
+            row.className = "user-entry";
+            const identity = document.createElement("p");
+            identity.textContent = `${user.prenom} ${user.nom} — ${user.email} (${user.role}) — ${user.actif ? "Actif" : "Désactivé"}`;
+            row.append(identity);
+            const actions = document.createElement("div");
+            actions.className = "inline-actions";
+            const statusButton = document.createElement("button");
+            statusButton.type = "button";
+            statusButton.className = "btn btn-secondary btn-small";
+            statusButton.textContent = user.actif ? "Désactiver" : "Réactiver";
+            statusButton.disabled = user.id === currentUserId && user.actif;
+            statusButton.addEventListener("click", async () => {
+                statusButton.disabled = true;
+                try {
+                    await dashboardRequest(`/api/admin/users/${user.id}/status`, token, {
+                        method: "PATCH",
+                        body: JSON.stringify({ actif: !user.actif }),
+                    });
+                    await refreshAdminUsers(list, token, currentUserId);
+                } catch (error) {
+                    showCardMessage(list.closest(".card"), error.message);
+                    statusButton.disabled = false;
+                }
+            });
+            const resetButton = document.createElement("button");
+            resetButton.type = "button";
+            resetButton.className = "btn btn-secondary btn-small";
+            resetButton.textContent = "Réinitialiser l'accès";
+            resetButton.disabled = user.id === currentUserId;
+            resetButton.addEventListener("click", async () => {
+                resetButton.disabled = true;
+                try {
+                    const result = await dashboardRequest(`/api/admin/users/${user.id}/reset-access`, token, { method: "POST" });
+                    appendOneTimeCredentials(list.closest(".card"), result);
+                    showCardMessage(list.closest(".card"), `Accès réinitialisé pour ${user.email}.`, true);
+                } catch (error) {
+                    showCardMessage(list.closest(".card"), error.message);
+                } finally {
+                    resetButton.disabled = false;
+                }
+            });
+            actions.append(statusButton, resetButton);
+            row.append(actions);
+            list.append(row);
+        });
+        if (!users.length) {
+            const empty = document.createElement("p");
+            empty.textContent = "Aucun compte.";
+            list.append(empty);
+        }
+    } catch (error) {
+        list.textContent = error.message;
+    }
+}
+
+function renderRecoveryCodeTools(container, token) {
+    const card = createDashboardCard("Codes de secours MFA", "Générez une nouvelle série si vous avez perdu vos codes. Les anciens seront invalidés.");
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "btn btn-secondary";
+    button.textContent = "Régénérer les codes";
+    button.addEventListener("click", async () => {
+        button.disabled = true;
+        try {
+            const result = await dashboardRequest("/api/mfa/recovery-codes", token, { method: "POST" });
+            const codes = document.createElement("pre");
+            codes.className = "recovery-codes";
+            codes.textContent = result.codes_de_secours.join("\n");
+            card.querySelector(".recovery-codes")?.remove();
+            card.append(codes);
+            showCardMessage(card, "Copiez ces codes dans un endroit privé. Ils ne seront plus réaffichés.", true);
+        } catch (error) {
+            showCardMessage(card, error.message);
+        } finally {
+            button.disabled = false;
+        }
+    });
+    card.append(button);
+    container.append(card);
 }
 
 async function fetchAuditLogs(logsElement, button) {

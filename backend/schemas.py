@@ -12,7 +12,7 @@ class UserCreate(InputModel):
     prenom: str = Field(min_length=1, max_length=100)
     email: EmailStr
     telephone: str | None = Field(default=None, max_length=50)
-    mot_de_passe: str = Field(min_length=8, max_length=72)
+    mot_de_passe: str = Field(min_length=12, max_length=72)
     role: Literal["Patient"] = "Patient"
 
     @field_validator("nom", "prenom", "telephone")
@@ -65,7 +65,7 @@ class AdminUserCreate(InputModel):
     prenom: str = Field(min_length=1, max_length=100)
     email: EmailStr
     telephone: str | None = Field(default=None, max_length=50)
-    role: Literal["Médecin", "Administrateur"]
+    role: Literal["Médecin", "Spécialiste", "Administrateur"]
 
     @field_validator("nom", "prenom", "telephone")
     @classmethod
