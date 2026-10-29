@@ -1,10 +1,13 @@
 """Test end-to-end du flux login + MFA contre le serveur local."""
 import json
+import sqlite3
 import urllib.request
+from pathlib import Path
 
 import pyotp
 
 BASE = "http://127.0.0.1:8000"
+DB_PATH = Path(__file__).resolve().parents[1] / "telemed_secure.db"
 
 
 def post(path, payload):
@@ -36,9 +39,7 @@ print("LOGIN:", status, data.get("message") or data)
 challenge = data.get("challenge_token")
 if challenge:
     # Récupère le secret MFA du compte créé plus tôt
-    import sqlite3
-
-    con = sqlite3.connect("telemed_secure.db")
+    con = sqlite3.connect(DB_PATH)
     secret = con.execute(
         "select secret_mfa from utilisateurs where email=?", ("kabu.patient@example.com",)
     ).fetchone()[0]

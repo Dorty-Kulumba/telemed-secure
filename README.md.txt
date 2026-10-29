@@ -19,10 +19,30 @@ La création publique d'un compte médecin ou administrateur est volontairement 
 Prérequis : Python 3.10 ou plus récent.
 
 1. Copiez `.env.example` vers `.env` à la racine du projet.
-2. Remplacez `SECRET_KEY` par une valeur aléatoire de plus de 32 octets. SQLite est configuré pour le développement local ; la première exécution crée `telemed_secure.db`.
-3. Installez les dépendances : `python -m pip install -r backend/requirements.txt`.
-4. Depuis la racine du dépôt, lancez : `uvicorn backend.main:app --reload`.
-5. Ouvrez `http://127.0.0.1:8000` et créez un compte patient. La clé MFA et le lien de configuration sont affichés immédiatement après l'inscription ; enregistrez-les dans votre application d'authentification.
+2. Remplacez `SECRET_KEY` par une valeur aléatoire de plus de 32 octets. SQLite est configuré par défaut : `DATABASE_URL=sqlite:///./telemed_secure.db`.
+3. Créez l'environnement et installez les dépendances :
+   - `uv venv .venv`
+   - `uv pip install -r backend/requirements.txt`
+4. Créez les tables (l'application **ne** crée pas le schéma au démarrage, il faut appliquer les migrations Alembic) :
+   - `.venv/Scripts/python.exe -m alembic upgrade head`
+5. Lancez le serveur depuis la racine du dépôt :
+   - `.venv/Scripts/python.exe -m uvicorn backend.main:app --reload`
+6. Ouvrez `http://127.0.0.1:8000` et créez un compte patient. La clé MFA et le lien de configuration sont affichés immédiatement après l'inscription ; enregistrez-les dans votre application d'authentification.
+
+## Comptes de démonstration (sans SMTP)
+
+Aucun e-mail n'est envoyé par cette application : la clé TOTP est affichée à l'inscription, puis à chaque connexion en mode démonstration.
+
+Avec `ENABLE_TEST_ACCOUNTS=true` dans `.env`, l'interface affiche un panneau **Accès de démonstration** et l'API expose `GET /api/dev/test-accounts`, qui renvoie pour chaque compte le mot de passe et le code TOTP courant. Trois comptes sont créés automatiquement :
+
+| Rôle | E-mail | Mot de passe |
+| --- | --- | --- |
+| Patient | `demo.patient@example.com` | `DemoPatient2026!` |
+| Médecin | `demo.medecin@example.com` | `DemoMedecin2026!` |
+| Administrateur | `demo.admin@example.com` | `DemoAdmin2026!` |
+
+Ces points d'entrée ne doivent jamais être activés en production : mettre `ENABLE_TEST_ACCOUNTS=false` (valeur par défaut dans `.env.example`).
+
 
 Pour utiliser PostgreSQL, définissez `DATABASE_URL` dans `.env`. Pour conserver les dossiers chiffrés entre les redémarrages et les déploiements, définissez également `AES_ENCRYPTION_KEY` avec une clé AES de 32 octets encodée en base64 et conservez-la dans le gestionnaire de secrets de l'hébergeur. Ne changez pas cette clé après avoir chiffré des dossiers.
 
