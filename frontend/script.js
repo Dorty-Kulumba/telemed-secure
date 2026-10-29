@@ -116,6 +116,10 @@ function initializeAuthentication() {
             const mfaLink = document.getElementById("mfa-uri-link");
             mfaLink.href = data.mfa.provisioning_uri;
             mfaLink.setAttribute("aria-label", "Ajouter Telemed Secure à votre application d'authentification");
+            const recoveryCodes = document.getElementById("registration-recovery-codes");
+            if (recoveryCodes) {
+                recoveryCodes.textContent = (data.codes_de_secours || []).join("\n");
+            }
             document.getElementById("continue-login").dataset.email = payload.email;
             setMessage("enrollment-message", data.message, "success");
             showSection("enrollment-section");
@@ -258,8 +262,110 @@ function logout() {
     window.location.replace("index.html");
 }
 
+/* --- Mode démonstration locale (sans SMTP) --- */
+
+const demoCodeNodes = new Map();
+
+function prefillLogin(email, motDePasse) {
+    showSection("login-section");
+    setMessage("login-message", "");
+    document.getElementById("email").value = email;
+    document.getElementById("password").value = motDePasse;
+    document.getElementById("password").focus();
+}
+
+function useDemoTotp(code) {
+    const input = document.getElementById("mfa-code");
+    if (!input) return;
+    input.value = code;
+    input.focus();
+}
+
+function renderDemoAccounts(accounts) {
+    const container = document.getElementById("demo-accounts");
+    const list = document.getElementById("demo-account-list");
+    if (!container || !list) return;
+
+    if (list.dataset.ready !== "1") {
+        list.replaceChildren();
+        accounts.forEach((account) => {
+            const row = document.createElement("article");
+            row.className = "demo-row";
+
+            const head = document.createElement("p");
+            head.className = "demo-head";
+            const badge = document.createElement("span");
+            badge.className = "badge";
+            badge.textContent = account.role;
+            const email = document.createElement("code");
+            email.textContent = account.email;
+            head.append(badge, email);
+
+            const credentials = document.createElement("p");
+            credentials.className = "demo-credentials";
+            credentials.textContent = `Mot de passe : ${account.mot_de_passe}`;
+
+            const codeLine = document.createElement("p");
+            codeLine.className = "demo-code-line";
+            const code = document.createElement("strong");
+            code.className = "demo-code";
+            code.textContent = account.code_totp;
+            const timer = document.createElement("span");
+            timer.className = "demo-timer";
+            timer.textContent = `${account.expire_dans}s`;
+            codeLine.append(document.createTextNode("Code MFA : "), code, document.createTextNode(" "), timer);
+
+            const actions = document.createElement("div");
+            actions.className = "demo-actions";
+            const loginButton = document.createElement("button");
+            loginButton.type = "button";
+            loginButton.className = "btn btn-small";
+            loginButton.textContent = "Pré-remplir la connexion";
+            loginButton.addEventListener("click", () => prefillLogin(account.email, account.mot_de_passe));
+            const codeButton = document.createElement("button");
+            codeButton.type = "button";
+            codeButton.className = "link-button";
+            codeButton.textContent = "Utiliser le code MFA";
+            codeButton.addEventListener("click", () => useDemoTotp(code.textContent));
+            actions.append(loginButton, codeButton);
+
+            row.append(head, credentials, codeLine, actions);
+            list.append(row);
+            demoCodeNodes.set(account.email, { code, timer });
+        });
+        list.dataset.ready = "1";
+        container.classList.remove("hidden");
+        return;
+    }
+
+    accounts.forEach((account) => {
+        const node = demoCodeNodes.get(account.email);
+        if (!node) return;
+        node.code.textContent = account.code_totp;
+        node.timer.textContent = `${account.expire_dans}s`;
+    });
+}
+
+async function initDemoAccounts() {
+    const container = document.getElementById("demo-accounts");
+    if (!container) return;
+
+    const refresh = async () => {
+        try {
+            const { response, data } = await apiRequest("/api/dev/test-accounts");
+            if (response.ok && Array.isArray(data)) renderDemoAccounts(data);
+        } catch {
+            /* Le panneau reste masqué si le mode démonstration est désactivé. */
+        }
+    };
+
+    await refresh();
+    window.setInterval(refresh, 5000);
+}
+
 document.addEventListener("DOMContentLoaded", () => {
     initializeAuthentication();
+    initDemoAccounts();
     document.getElementById("logout-button")?.addEventListener("click", logout);
     if (document.getElementById("dashboard-page")) {
         initDashboard();

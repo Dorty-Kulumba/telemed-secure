@@ -699,6 +699,13 @@ def get_audit_logs(
     ]
 
 
+# Outils de démonstration : jamais actifs par défaut, à réserver au local.
+if os.getenv("ENABLE_TEST_ACCOUNTS", "").strip().lower() in {"1", "true", "yes", "on"}:
+    from .devtools import router as demo_router  # noqa: E402
+
+    app.include_router(demo_router)
+
+
 # Le frontend est monté en dernier pour que les routes API restent prioritaires.
 frontend_path = Path(__file__).resolve().parents[1] / "frontend"
 if frontend_path.exists():

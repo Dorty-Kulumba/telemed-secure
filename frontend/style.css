@@ -416,6 +416,68 @@ input:focus {
     font: 12px/1.5 Consolas, monospace;
 }
 
+/* Mode démonstration locale */
+.demo-panel {
+    margin-top: 26px;
+    padding-top: 20px;
+    border-top: 1px dashed var(--border-color);
+}
+
+.demo-list {
+    display: grid;
+    gap: 10px;
+}
+
+.demo-row {
+    padding: 14px;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: #f8fafc;
+    text-align: left;
+}
+
+.demo-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+}
+
+.demo-head code {
+    font: 13px/1.4 Consolas, monospace;
+    overflow-wrap: anywhere;
+}
+
+.demo-credentials {
+    color: var(--muted-color);
+    font-size: 13px;
+    margin-bottom: 6px;
+}
+
+.demo-code-line {
+    font-size: 14px;
+    margin-bottom: 10px;
+}
+
+.demo-code {
+    font: 700 18px/1.2 Consolas, monospace;
+    letter-spacing: 2px;
+    color: var(--primary-dark);
+}
+
+.demo-timer {
+    color: var(--muted-color);
+    font-size: 12px;
+}
+
+.demo-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+}
+
 @media (max-width: 560px) {
     body {
         align-items: flex-start;
