@@ -1,268 +1,146 @@
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Telemed Secure - Connexion</title>
-    <style>
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: #f4f7f6;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            margin: 0;
-        }
-        .login-card {
-            background: white;
-            padding: 40px;
-            border-radius: 12px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-            width: 100%;
-            max-width: 400px;
-        }
-        .logo-container {
-            text-align: center;
-            margin-bottom: 20px;
-        }
-        .logo-badge {
-            background-color: #0b6623;
-            color: white;
-            font-size: 24px;
-            font-weight: bold;
-            display: inline-block;
-            padding: 10px 15px;
-            border-radius: 8px;
-        }
-        h2 {
-            text-align: center;
-            color: #333;
-            margin-bottom: 5px;
-        }
-        .subtitle {
-            text-align: center;
-            color: #666;
-            font-size: 14px;
-            margin-bottom: 25px;
-        }
-        .form-group {
-            margin-bottom: 20px;
-        }
-        label {
-            display: block;
-            margin-bottom: 8px;
-            color: #333;
-            font-weight: 500;
-        }
-        input {
-            width: 100%;
-            padding: 12px;
-            border: 1px solid #ccc;
-            border-radius: 6px;
-            font-size: 14px;
-            box-sizing: border-box;
-        }
-        button {
-            width: 100%;
-            padding: 12px;
-            background-color: #0b6623;
-            color: white;
-            border: none;
-            border-radius: 6px;
-            font-size: 16px;
-            font-weight: bold;
-            cursor: pointer;
-            transition: background 0.3s;
-        }
-        button:hover {
-            background-color: #084e1b;
-        }
-        .footer-links {
-            display: flex;
-            justify-content: space-between;
-            margin-top: 20px;
-            font-size: 13px;
-        }
-        .footer-links a {
-            color: #0b6623;
-            text-decoration: none;
-        }
-        .footer-links a:hover {
-            text-decoration: underline;
-        }
-        .hidden {
-            display: none;
-        }
-    </style>
-</head>
-<body>
+import os
+from fastapi import FastAPI, Depends, HTTPException, status, Request
+from fastapi.staticfiles import StaticFiles
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
+from dotenv import load_dotenv
 
-    <div class="login-card">
-        <div class="logo-container">
-            <div class="logo-badge">+</div>
-        </div>
-        <h2>Telemed Secure</h2>
-        <div class="subtitle">Bienvenue sur la plateforme</div>
+load_dotenv()
 
-        <!-- Formulaire de Connexion -->
-        <div id="login-section">
-            <form id="form-login">
-                <div class="form-group">
-                    <label for="email">Adresse e-mail ou numéro de téléphone</label>
-                    <input type="text" id="email" required placeholder="exemple@gmail.com">
-                </div>
-                <div class="form-group">
-                    <label for="password">Mot de passe</label>
-                    <input type="password" id="password" required placeholder="••••••••">
-                </div>
-                <button type="submit">Se connecter</button>
-            </form>
+# Vérification critique des variables d'environnement (Règle de sécurité du projet)
+SECRET_KEY = os.getenv("SECRET_KEY")
+TOTP_SECRET = os.getenv("TOTP_SECRET")
 
-            <div class="footer-links">
-                <a href="#" onclick="alert('Fonctionnalité de récupération de mot de passe sécurisée.')">Mot de passe oublié ?</a>
-                <a href="#" onclick="toggleView('register-section')">Créer un compte</a>
-            </div>
-        </div>
+if not SECRET_KEY:
+    raise RuntimeError("SECRET_KEY absente du fichier .env")
+if not TOTP_SECRET:
+    raise RuntimeError("TOTP_SECRET absente du fichier .env")
 
-        <!-- Formulaire d'Inscription (Accessible via le lien) -->
-        <div id="register-section" class="hidden">
-            <form id="form-register">
-                <div class="form-group">
-                    <label>Nom</label>
-                    <input type="text" id="reg-nom" required>
-                </div>
-                <div class="form-group">
-                    <label>Prénom</label>
-                    <input type="text" id="reg-prenom" required>
-                </div>
-                <div class="form-group">
-                    <label>Adresse e-mail</label>
-                    <input type="email" id="reg-email" required>
-                </div>
-                <div class="form-group">
-                    <label>Téléphone</label>
-                    <input type="text" id="reg-tel" required>
-                </div>
-                <div class="form-group">
-                    <label>Mot de passe</label>
-                    <input type="password" id="reg-password" required>
-                </div>
-                <div class="form-group">
-                    <label>Rôle</label>
-                    <input type="text" id="reg-role" value="Patient" readonly>
-                </div>
-                <button type="submit">S'inscrire</button>
-            </form>
-            <div class="footer-links" style="justify-content: center;">
-                <a href="#" onclick="toggleView('login-section')">← Retour à la connexion</a>
-            </div>
-        </div>
+from database import engine, Base, get_db
+from models import Utilisateur, DossierMedical, Consentement, JournalAudit
+from schemas import UserCreate, UserLogin, MFAVerify, DossierCreate, ConsentUpdate
+from security import (
+    hash_password, verify_password, create_access_token,
+    verify_access_token, verify_totp_code, generate_totp_secret,
+    encrypt_medical_record, decrypt_medical_record
+)
 
-        <!-- Section MFA / Vérification du code -->
-        <div id="mfa-section" class="hidden">
-            <div class="subtitle" style="color: #d9534f; font-weight: bold;">Vérification de sécurité (MFA)</div>
-            <form id="form-mfa">
-                <div class="form-group">
-                    <label for="mfa-code">Code de vérification (TOTP)</label>
-                    <input type="text" id="mfa-code" maxlength="6" required placeholder="000000" style="text-align: center; font-size: 20px; letter-spacing: 5px;">
-                </div>
-                <button type="submit">Vérifier le code</button>
-            </form>
-            <div class="footer-links" style="justify-content: center; margin-top: 15px;">
-                <a href="#" onclick="toggleView('login-section')">← Retour à la connexion</a>
-            </div>
-        </div>
-    </div>
+# Configuration du schéma de sécurité HTTP Bearer pour Swagger UI
+security = HTTPBearer()
 
-    <script>
-        let currentUserEmail = "";
+# Création automatique des tables dans PostgreSQL au démarrage
+Base.metadata.create_all(bind=engine)
 
-        function toggleView(sectionId) {
-            document.getElementById('login-section').classList.add('hidden');
-            document.getElementById('register-section').classList.add('hidden');
-            document.getElementById('mfa-section').classList.add('hidden');
-            document.getElementById(sectionId).classList.remove('hidden');
-        }
+app = FastAPI(title="Telemed Secure API", version="1.0.0")
 
-        // Gestion de la connexion (Étape 1)
-        document.getElementById('form-login').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const email = document.getElementById('email').value;
-            const mot_de_passe = document.getElementById('password').value;
+# Configuration CORS pour autoriser le frontend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-            try {
-                const response = await fetch('/api/login', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email, mot_de_passe })
-                });
-                const data = await response.json();
-                if (response.ok) {
-                    currentUserEmail = email;
-                    alert("Identifiants valides ! Veuillez saisir votre code MFA.");
-                    toggleView('mfa-section');
-                } else {
-                    alert("Erreur : " + (data.detail || "Identifiants incorrects"));
-                }
-            } catch (err) {
-                alert("Erreur de connexion au serveur.");
-            }
-        });
+# Intégration et service direct du dossier Frontend à la racine pour charger index.html, CSS et JS
+frontend_path = os.path.join(os.path.dirname(__file__), "..", "frontend")
 
-        // Gestion de la validation MFA (Étape 2)
-        document.getElementById('form-mfa').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const code_totp = document.getElementById('mfa-code').value;
+if os.path.exists(frontend_path):
+    app.mount("/", StaticFiles(directory=frontend_path, html=True), name="frontend")
 
-            try {
-                const response = await fetch('/api/mfa/verify', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email: currentUserEmail, code_totp })
-                });
-                const data = await response.json();
-                if (response.ok) {
-                    localStorage.setItem('token', data.access_token);
-                    alert("Connexion réussie ! Bienvenue " + data.nom);
-                    // Redirection ou affichage du tableau de bord selon le rôle
-                } else {
-                    alert("Code MFA invalide : " + (data.detail || "Vérifiez votre application d'authentification"));
-                }
-            } catch (err) {
-                alert("Erreur lors de la vérification MFA.");
-            }
-        });
+# 1. Inscription d'un utilisateur
+@app.post("/api/register")
+def register(user_data: UserCreate, db: Session = Depends(get_db)):
+    existing_user = db.query(Utilisateur).filter(Utilisateur.email == user_data.email).first()
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Cet e-mail est déjà utilisé.")
+    
+    hashed_pwd = hash_password(user_data.mot_de_passe)
+    mfa_sec = generate_totp_secret() if user_data.role in ["Patient", "Médecin"] else None
 
-        // Gestion de l'inscription
-        document.getElementById('form-register').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const payload = {
-                nom: document.getElementById('reg-nom').value,
-                prenom: document.getElementById('reg-prenom').value,
-                email: document.getElementById('reg-email').value,
-                telephone: document.getElementById('reg-tel').value,
-                mot_de_passe: document.getElementById('reg-password').value,
-                role: document.getElementById('reg-role').value
-            };
+    new_user = Utilisateur(
+        nom=user_data.nom,
+        prenom=user_data.prenom,
+        email=user_data.email,
+        telephone=user_data.telephone,
+        mot_de_passe_hash=hashed_pwd,
+        role=user_data.role,
+        secret_mfa=mfa_sec
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
 
-            try {
-                const response = await fetch('/api/register', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-                const data = await response.json();
-                if (response.ok) {
-                    alert("Compte créé avec succès ! Vous pouvez vous connecter.");
-                    toggleView('login-section');
-                } else {
-                    alert("Erreur : " + (data.detail || "Échec de l'inscription"));
-                }
-            } catch (err) {
-                alert("Erreur réseau lors de l'inscription.");
-            }
-        });
-    </script>
-</body>
-</html>
+    return {"message": "Utilisateur créé avec succès", "mfa_secret_genere": mfa_sec}
+
+# 2. Étape 1 de Connexion (Vérification des identifiants et déclenchement du challenge MFA)
+@app.post("/api/login")
+def login(credentials: UserLogin, db: Session = Depends(get_db)):
+    user = db.query(Utilisateur).filter(Utilisateur.email == credentials.email).first()
+    if not user or not verify_password(credentials.mot_de_passe, user.mot_de_passe_hash):
+        raise HTTPException(status_code=401, detail="Identifiants incorrects.")
+    
+    return {"message": "Identifiants valides. Veuillez soumettre le code MFA/TOTP.", "email": user.email}
+
+# 3. Étape 2 de Connexion (Validation du code TOTP et génération du Jeton JWT)
+@app.post("/api/mfa/verify")
+def verify_mfa(data: MFAVerify, db: Session = Depends(get_db)):
+    user = db.query(Utilisateur).filter(Utilisateur.email == data.email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable.")
+    
+    # Si l'utilisateur n'a pas de secret MFA, on utilise le secret global de secours du .env
+    secret_to_use = user.secret_mfa if user.secret_mfa else TOTP_SECRET
+    
+    if not verify_totp_code(secret_to_use, data.code_totp):
+        raise HTTPException(status_code=401, detail="Code MFA/TOTP invalide.")
+    
+    # Génération du jeton JWT sécurisé
+    token = create_access_token({"sub": user.email, "role": user.role, "id": user.id})
+    
+    # Journalisation de l'action dans la table d'audit
+    audit = JournalAudit(utilisateur_id=user.id, action="CONNEXION_MFA_REUSSIE", ressource="Auth Module")
+    db.add(audit)
+    db.commit()
+
+    return {"access_token": token, "token_type": "bearer", "role": user.role, "nom": user.nom}
+
+# 4. Création d'un dossier médical chiffré (AES-GCM) - Sécurisé par HTTP Bearer
+@app.post("/api/dossiers")
+def create_dossier(dossier: DossierCreate, request: Request, credentials: HTTPAuthorizationCredentials = Depends(security), db: Session = Depends(get_db)):
+    token = credentials.credentials
+    payload = verify_access_token(token)
+    if not payload:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Jeton JWT invalide ou expiré.")
+
+    # Chiffrement symétrique fort AES-GCM
+    contenu_chiffre = encrypt_medical_record(dossier.contenu)
+    
+    nouveau_dossier = DossierMedical(
+        patient_id=dossier.patient_id,
+        contenu_chiffre=contenu_chiffre
+    )
+    db.add(nouveau_dossier)
+    
+    # Ajout dans le journal d'audit
+    audit = JournalAudit(
+        action="CREATION_DOSSIER_MEDICAL",
+        ressource=f"Dossier Patient ID {dossier.patient_id}",
+        adresse_ip=request.client.host if request.client else "Inconnue"
+    )
+    db.add(audit)
+    db.commit()
+    
+    return {"message": "Dossier médical chiffré et enregistré avec succès (AES-GCM)."}
+
+# 5. Consultation des journaux d'audit (Réservé à l'Administrateur)
+@app.get("/api/audit")
+def get_audit_logs(credentials: HTTPAuthorizationCredentials = Depends(security), db: Session = Depends(get_db)):
+    token = credentials.credentials
+    payload = verify_access_token(token)
+    if not payload:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Jeton JWT invalide ou expiré.")
+    
+    logs = db.query(JournalAudit).all()
+    return logs
