@@ -3,34 +3,25 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Telemed Secure - Tableau de bord</title>
+    <meta name="theme-color" content="#0f766e">
+    <title>Telemed Secure — Tableau de bord</title>
     <link rel="stylesheet" href="style.css">
+    <script src="script.js" defer></script>
 </head>
-<body>
-
-    <div class="dashboard-container">
-        <div class="dash-header">
+<body id="dashboard-page">
+    <main class="dashboard-container">
+        <header class="dash-header">
             <div>
                 <h2>Telemed Secure</h2>
-                <p>Espace de santé & Gouvernance de Sécurité</p>
+                <p>Espace de santé sécurisé</p>
             </div>
-            <div>
-                <span id="user-display">Chargement...</span>
-                <button onclick="logout()" class="btn btn-danger" style="margin-left: 15px;">Déconnexion</button>
+            <div class="user-actions">
+                <span id="user-display" class="user-display">Chargement…</span>
+                <button id="logout-button" type="button" class="btn btn-danger">Déconnexion</button>
             </div>
-        </div>
-
-        <div id="role-content">
-            <!-- Le contenu spécifique au rôle (Patient, Médecin, Admin) sera inséré ici -->
-        </div>
-    </div>
-
-    <script src="script.js"></script>
-    <script>
-        // Charger le profil au démarrage de la page dashboard
-        window.addEventListener('DOMContentLoaded', () => {
-            initDashboard();
-        });
-    </script>
+        </header>
+        <p id="dashboard-message" class="status-message" role="status" aria-live="polite"></p>
+        <section id="role-content" class="card-grid" aria-live="polite"></section>
+    </main>
 </body>
 </html>

@@ -1,25 +1,20 @@
 import os
+
 from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
-from dotenv import load_dotenv
+from sqlalchemy.orm import declarative_base, sessionmaker
 
-load_dotenv()
-
-# Récupération de l'URL de la base de données (fournie par le cloud ou le .env local)
-SQLALCHEMY_DATABASE_URL = os.getenv(
-    "DATABASE_URL", 
-    "postgresql://postgres:votre_mot_de_passe@localhost:5432/telemed_secure"
-)
-
-# Correction pour les URL postgres:// fournies par certains hébergeurs (Render, etc.) vers postgresql://
+SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./telemed_secure.db")
 if SQLALCHEMY_DATABASE_URL.startswith("postgres://"):
     SQLALCHEMY_DATABASE_URL = SQLALCHEMY_DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-engine = create_engine(SQLALCHEMY_DATABASE_URL)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+engine_options = {"pool_pre_ping": True}
+if SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
+    engine_options["connect_args"] = {"check_same_thread": False}
 
+engine = create_engine(SQLALCHEMY_DATABASE_URL, **engine_options)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
+
 
 def get_db():
     db = SessionLocal()

@@ -1,156 +1,267 @@
-// URL de votre API déployée sur Render
-const API_URL = "https://telemed-kulumba.onrender.com";
+const API_BASE_URL = "";
 
-// --- GESTION DE LA CONNEXION (INDEX.HTML) ---
-const loginForm = document.getElementById('login-form');
-if (loginForm) {
-    loginForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const email = document.getElementById('email').value;
-        const password = document.getElementById('password').value;
-        const errorDiv = document.getElementById('login-error');
-        errorDiv.textContent = "";
+async function apiRequest(path, options = {}) {
+    const headers = new Headers(options.headers || {});
+    if (options.body && !headers.has("Content-Type")) {
+        headers.set("Content-Type", "application/json");
+    }
+    if (options.token) {
+        headers.set("Authorization", `Bearer ${options.token}`);
+    }
 
-        try {
-            const response = await fetch(`${API_URL}/api/login`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email: email, mot_de_passe: password })
-            });
+    const response = await fetch(`${API_BASE_URL}${path}`, {
+        ...options,
+        headers,
+    });
+    const data = await response.json().catch(() => ({}));
+    return { response, data };
+}
 
-            const data = await response.json();
-            if (response.ok) {
-                sessionStorage.setItem('pending_email', email);
-                document.getElementById('login-section').style.display = 'none';
-                document.getElementById('mfa-section').style.display = 'block';
-            } else {
-                errorDiv.textContent = data.detail || "Identifiants invalides.";
+function errorText(detail, fallback) {
+    if (Array.isArray(detail)) {
+        return detail.map((item) => item.msg || "Donnée invalide.").join(" ");
+    }
+    return typeof detail === "string" && detail ? detail : fallback;
+}
+
+function setMessage(elementId, message, kind = "error") {
+    const element = document.getElementById(elementId);
+    if (!element) return;
+    element.textContent = message;
+    element.classList.toggle("success", kind === "success");
+}
+
+function showSection(sectionId) {
+    ["login-section", "register-section", "enrollment-section", "mfa-section"].forEach((id) => {
+        document.getElementById(id)?.classList.toggle("hidden", id !== sectionId);
+    });
+}
+
+function setBusy(form, busy) {
+    const button = form.querySelector('button[type="submit"]');
+    if (!button) return;
+    button.disabled = busy;
+    button.dataset.originalText ||= button.textContent;
+    button.textContent = busy ? "Veuillez patienter…" : button.dataset.originalText;
+}
+
+function initializeAuthentication() {
+    document.querySelectorAll("[data-view]").forEach((button) => {
+        button.addEventListener("click", () => {
+            if (button.dataset.view === "login-section" && document.getElementById("mfa-section") && !document.getElementById("mfa-section").classList.contains("hidden")) {
+                sessionStorage.removeItem("pending_mfa_token");
             }
-        } catch (err) {
-            errorDiv.textContent = "Erreur de communication avec le serveur API.";
+            showSection(button.dataset.view);
+        });
+    });
+
+    const loginForm = document.getElementById("form-login");
+    loginForm?.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        setMessage("login-message", "");
+        if (!loginForm.reportValidity()) return;
+
+        const email = document.getElementById("email").value.trim().toLowerCase();
+        const mot_de_passe = document.getElementById("password").value;
+        setBusy(loginForm, true);
+        try {
+            const { response, data } = await apiRequest("/api/login", {
+                method: "POST",
+                body: JSON.stringify({ email, mot_de_passe }),
+            });
+            if (!response.ok) {
+                setMessage("login-message", errorText(data.detail, "Connexion impossible."));
+                return;
+            }
+            sessionStorage.setItem("pending_mfa_token", data.challenge_token);
+            sessionStorage.removeItem("jwt_token");
+            document.getElementById("mfa-code").value = "";
+            setMessage("mfa-message", "");
+            showSection("mfa-section");
+            document.getElementById("mfa-code").focus();
+        } catch {
+            setMessage("login-message", "Impossible de joindre le serveur. Réessayez dans un instant.");
+        } finally {
+            setBusy(loginForm, false);
+        }
+    });
+
+    const registerForm = document.getElementById("form-register");
+    registerForm?.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        setMessage("register-message", "");
+        if (!registerForm.reportValidity()) return;
+
+        const telephone = document.getElementById("reg-tel").value.trim();
+        const payload = {
+            nom: document.getElementById("reg-nom").value.trim(),
+            prenom: document.getElementById("reg-prenom").value.trim(),
+            email: document.getElementById("reg-email").value.trim().toLowerCase(),
+            telephone: telephone || null,
+            mot_de_passe: document.getElementById("reg-password").value,
+        };
+
+        setBusy(registerForm, true);
+        try {
+            const { response, data } = await apiRequest("/api/register", {
+                method: "POST",
+                body: JSON.stringify(payload),
+            });
+            if (!response.ok) {
+                setMessage("register-message", errorText(data.detail, "La création du compte a échoué."));
+                return;
+            }
+
+            document.getElementById("mfa-secret").textContent = data.mfa.secret;
+            const mfaLink = document.getElementById("mfa-uri-link");
+            mfaLink.href = data.mfa.provisioning_uri;
+            mfaLink.setAttribute("aria-label", "Ajouter Telemed Secure à votre application d'authentification");
+            document.getElementById("continue-login").dataset.email = payload.email;
+            setMessage("enrollment-message", data.message, "success");
+            showSection("enrollment-section");
+        } catch {
+            setMessage("register-message", "Impossible de joindre le serveur. Vérifiez votre connexion puis réessayez.");
+        } finally {
+            setBusy(registerForm, false);
+        }
+    });
+
+    document.getElementById("continue-login")?.addEventListener("click", (event) => {
+        const email = event.currentTarget.dataset.email || "";
+        showSection("login-section");
+        document.getElementById("email").value = email;
+        document.getElementById("password").focus();
+    });
+
+    const mfaForm = document.getElementById("form-mfa");
+    mfaForm?.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        setMessage("mfa-message", "");
+        if (!mfaForm.reportValidity()) return;
+
+        const challenge_token = sessionStorage.getItem("pending_mfa_token");
+        if (!challenge_token) {
+            setMessage("mfa-message", "Votre demande a expiré. Recommencez la connexion.");
+            showSection("login-section");
+            return;
+        }
+
+        const code_totp = document.getElementById("mfa-code").value.trim();
+        setBusy(mfaForm, true);
+        try {
+            const { response, data } = await apiRequest("/api/mfa/verify", {
+                method: "POST",
+                body: JSON.stringify({ challenge_token, code_totp }),
+            });
+            if (!response.ok) {
+                setMessage("mfa-message", errorText(data.detail, "Code invalide. Vérifiez-le et réessayez."));
+                return;
+            }
+
+            sessionStorage.removeItem("pending_mfa_token");
+            sessionStorage.setItem("jwt_token", data.access_token);
+            window.location.assign("dashboard.html");
+        } catch {
+            setMessage("mfa-message", "Impossible de vérifier le code. Réessayez dans un instant.");
+        } finally {
+            setBusy(mfaForm, false);
         }
     });
 }
 
-// --- GESTION DU CODE MFA / TOTP (INDEX.HTML) ---
-const mfaForm = document.getElementById('mfa-form');
-if (mfaForm) {
-    mfaForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const email = sessionStorage.getItem('pending_email');
-        const codeTotp = document.getElementById('totp-code').value;
-        const errorDiv = document.getElementById('mfa-error');
-        errorDiv.textContent = "";
-
-        try {
-            const response = await fetch(`${API_URL}/api/mfa/verify`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email: email, code_totp: codeTotp })
-            });
-
-            const data = await response.json();
-            if (response.ok) {
-                // Sauvegarde de la session
-                sessionStorage.setItem('jwt_token', data.access_token);
-                sessionStorage.setItem('user_role', data.role);
-                sessionStorage.setItem('user_name', data.nom);
-                
-                // Redirection vers le tableau de bord
-                window.location.href = "dashboard.html";
-            } else {
-                errorDiv.textContent = data.detail || "Code MFA invalide.";
-            }
-        } catch (err) {
-            errorDiv.textContent = "Erreur lors de la validation du code TOTP.";
-        }
-    });
+function addTextCard(container, title, description) {
+    const card = document.createElement("article");
+    card.className = "card";
+    const heading = document.createElement("h3");
+    heading.textContent = title;
+    const paragraph = document.createElement("p");
+    paragraph.textContent = description;
+    card.append(heading, paragraph);
+    container.append(card);
 }
 
-// --- INITIALISATION DU DASHBOARD (DASHBOARD.HTML) ---
-function initDashboard() {
-    const token = sessionStorage.getItem('jwt_token');
-    const role = sessionStorage.getItem('user_role');
-    const name = sessionStorage.getItem('user_name');
-
+async function initDashboard() {
+    const token = sessionStorage.getItem("jwt_token");
     if (!token) {
-        window.location.href = "index.html";
+        window.location.replace("index.html");
         return;
     }
 
-    const userDisplay = document.getElementById('user-display');
-    if (userDisplay) {
-        userDisplay.innerHTML = `<strong>${name}</strong> <span class="badge">${role}</span>`;
-    }
+    try {
+        const { response, data } = await apiRequest("/api/me", { token });
+        if (!response.ok) {
+            sessionStorage.removeItem("jwt_token");
+            window.location.replace("index.html");
+            return;
+        }
 
-    const roleContent = document.getElementById('role-content');
-    if (!roleContent) return;
+        const userDisplay = document.getElementById("user-display");
+        const name = document.createElement("strong");
+        name.textContent = `${data.prenom} ${data.nom}`;
+        const role = document.createElement("span");
+        role.className = "badge";
+        role.textContent = data.role;
+        userDisplay.replaceChildren(name, role);
 
-    if (role === 'Patient') {
-        roleContent.innerHTML = `
-            <h3>Tableau de bord - Patient</h3>
-            <p>Gestion de la confidentialité et consultation de vos données de santé.</p>
-            <div class="card-grid">
-                <div class="card">
-                    <h4>🔒 Consentements</h4>
-                    <p>Accorder ou révoquer l'accès aux praticiens.</p>
-                </div>
-                <div class="card">
-                    <h4>📁 Dossier Médical</h4>
-                    <p>Vos données sont chiffrées en AES-GCM au repos.</p>
-                </div>
-            </div>
-        `;
-    } else if (role === 'Médecin' || role === 'Spécialiste') {
-        roleContent.innerHTML = `
-            <h3>Tableau de bord - Praticien</h3>
-            <p>Consultation et prise en charge sécurisée des patients.</p>
-            <div class="card-grid">
-                <div class="card">
-                    <h4>📄 Consultation</h4>
-                    <p>Accès sous réserve du consentement explicite du patient.</p>
-                </div>
-                <div class="card">
-                    <h4>✍️ Nouveau Dossier</h4>
-                    <p>Saisie et chiffrement automatique du dossier médical.</p>
-                </div>
-            </div>
-        `;
-    } else if (role === 'Administrateur') {
-        roleContent.innerHTML = `
-            <h3>Gouvernance & Audit Technique</h3>
-            <p>Supervision et traçabilité infalsifiable du système.</p>
-            <div class="card">
-                <h4>📜 Journal d'Audit Centralisé</h4>
-                <p>Consultez l'ensemble des requêtes et actions sécurisées.</p>
-                <button onclick="fetchAuditLogs()" class="btn" style="width: auto;">Charger le journal d'audit</button>
-                <div id="audit-logs" style="margin-top: 15px; font-family: monospace; font-size: 12px; max-height: 200px; overflow-y: auto;"></div>
-            </div>
-        `;
+        const roleContent = document.getElementById("role-content");
+        roleContent.replaceChildren();
+        if (data.role === "Patient") {
+            addTextCard(roleContent, "Votre compte est prêt", "Votre espace patient est sécurisé par un mot de passe et un code d'authentification.");
+            addTextCard(roleContent, "Données médicales", "Les dossiers sont chiffrés lors de leur enregistrement. Les fonctions de consultation et de partage seront ajoutées dans une prochaine version.");
+        } else if (data.role === "Médecin" || data.role === "Spécialiste") {
+            addTextCard(roleContent, "Espace praticien", "La création d'un dossier médical exige le consentement explicite du patient.");
+        } else if (data.role === "Administrateur") {
+            const card = document.createElement("article");
+            card.className = "card";
+            const heading = document.createElement("h3");
+            heading.textContent = "Journal d'audit";
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "btn";
+            button.textContent = "Charger le journal";
+            const logs = document.createElement("pre");
+            logs.className = "audit-output";
+            button.addEventListener("click", () => fetchAuditLogs(logs, button));
+            card.append(heading, button, logs);
+            roleContent.append(card);
+        } else {
+            sessionStorage.removeItem("jwt_token");
+            window.location.replace("index.html");
+        }
+    } catch {
+        const status = document.getElementById("dashboard-message");
+        if (status) status.textContent = "Impossible de charger votre espace. Vérifiez votre connexion.";
     }
 }
 
-async function fetchAuditLogs() {
-    const token = sessionStorage.getItem('jwt_token');
-    const logsDiv = document.getElementById('audit-logs');
-    logsDiv.textContent = "Chargement des données d'audit...";
-
+async function fetchAuditLogs(logsElement, button) {
+    const token = sessionStorage.getItem("jwt_token");
+    button.disabled = true;
+    logsElement.textContent = "Chargement…";
     try {
-        const response = await fetch(`${API_URL}/api/audit`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-        const data = await response.json();
-        if (response.ok) {
-            logsDiv.innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`;
-        } else {
-            logsDiv.textContent = "Accès refusé ou erreur.";
+        const { response, data } = await apiRequest("/api/audit", { token });
+        if (!response.ok) {
+            logsElement.textContent = errorText(data.detail, "Journal indisponible.");
+            return;
         }
-    } catch (e) {
-        logsDiv.textContent = "Erreur de chargement de l'audit.";
+        logsElement.textContent = JSON.stringify(data, null, 2);
+    } catch {
+        logsElement.textContent = "Impossible de charger le journal.";
+    } finally {
+        button.disabled = false;
     }
 }
 
 function logout() {
-    sessionStorage.clear();
-    window.location.href = "index.html";
+    sessionStorage.removeItem("jwt_token");
+    sessionStorage.removeItem("pending_mfa_token");
+    window.location.replace("index.html");
 }
+
+document.addEventListener("DOMContentLoaded", () => {
+    initializeAuthentication();
+    document.getElementById("logout-button")?.addEventListener("click", logout);
+    if (document.getElementById("dashboard-page")) {
+        initDashboard();
+    }
+});

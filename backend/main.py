@@ -1,146 +1,308 @@
 import os
-from fastapi import FastAPI, Depends, HTTPException, status, Request
-from fastapi.staticfiles import StaticFiles
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
+from pathlib import Path
+
 from dotenv import load_dotenv
+from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.staticfiles import StaticFiles
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
-load_dotenv()
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
-# Vérification critique des variables d'environnement (Règle de sécurité du projet)
-SECRET_KEY = os.getenv("SECRET_KEY")
-TOTP_SECRET = os.getenv("TOTP_SECRET")
-
-if not SECRET_KEY:
-    raise RuntimeError("SECRET_KEY absente du fichier .env")
-if not TOTP_SECRET:
-    raise RuntimeError("TOTP_SECRET absente du fichier .env")
-
-from database import engine, Base, get_db
-from models import Utilisateur, DossierMedical, Consentement, JournalAudit
-from schemas import UserCreate, UserLogin, MFAVerify, DossierCreate, ConsentUpdate
-from security import (
-    hash_password, verify_password, create_access_token,
-    verify_access_token, verify_totp_code, generate_totp_secret,
-    encrypt_medical_record, decrypt_medical_record
+from .database import Base, engine, get_db  # noqa: E402
+from .models import Consentement, DossierMedical, JournalAudit, Utilisateur  # noqa: E402
+from .schemas import ConsentUpdate, DossierCreate, MFAVerify, UserCreate, UserLogin  # noqa: E402
+from .security import (  # noqa: E402
+    create_access_token,
+    create_mfa_challenge_token,
+    encrypt_medical_record,
+    generate_totp_secret,
+    get_totp_provisioning_uri,
+    hash_password,
+    verify_access_token,
+    verify_mfa_challenge_token,
+    verify_password,
+    verify_totp_code,
 )
 
-# Configuration du schéma de sécurité HTTP Bearer pour Swagger UI
+app = FastAPI(title="Telemed Secure API", version="1.1.0")
 security = HTTPBearer()
 
-# Création automatique des tables dans PostgreSQL au démarrage
-Base.metadata.create_all(bind=engine)
+allowed_origins = [
+    origin.strip()
+    for origin in os.getenv("CORS_ORIGINS", "").split(",")
+    if origin.strip()
+]
+if allowed_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=allowed_origins,
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PUT"],
+        allow_headers=["Authorization", "Content-Type"],
+    )
 
-app = FastAPI(title="Telemed Secure API", version="1.0.0")
 
-# Configuration CORS pour autoriser le frontend
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db),
+) -> Utilisateur:
+    payload = verify_access_token(credentials.credentials)
+    user_id = payload.get("id") if payload else None
+    if not isinstance(user_id, int):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session invalide ou expirée.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
-# Intégration et service direct du dossier Frontend à la racine pour charger index.html, CSS et JS
-frontend_path = os.path.join(os.path.dirname(__file__), "..", "frontend")
+    user = db.get(Utilisateur, user_id)
+    if not user or not user.actif:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Compte introuvable ou désactivé.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return user
 
-if os.path.exists(frontend_path):
-    app.mount("/", StaticFiles(directory=frontend_path, html=True), name="frontend")
 
-# 1. Inscription d'un utilisateur
-@app.post("/api/register")
-def register(user_data: UserCreate, db: Session = Depends(get_db)):
-    existing_user = db.query(Utilisateur).filter(Utilisateur.email == user_data.email).first()
-    if existing_user:
-        raise HTTPException(status_code=400, detail="Cet e-mail est déjà utilisé.")
-    
-    hashed_pwd = hash_password(user_data.mot_de_passe)
-    mfa_sec = generate_totp_secret() if user_data.role in ["Patient", "Médecin"] else None
+def require_role(user: Utilisateur, *allowed_roles: str) -> None:
+    if user.role not in allowed_roles:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Vous n'avez pas l'autorisation d'effectuer cette action.",
+        )
 
+
+@app.get("/api/health")
+def health_check():
+    return {"status": "ok"}
+
+
+@app.post("/api/register", status_code=status.HTTP_201_CREATED)
+def register(
+    user_data: UserCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    email = str(user_data.email).strip().lower()
+    if db.query(Utilisateur).filter(Utilisateur.email == email).first():
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Cet e-mail est déjà utilisé.")
+
+    mfa_secret = generate_totp_secret()
     new_user = Utilisateur(
         nom=user_data.nom,
         prenom=user_data.prenom,
-        email=user_data.email,
+        email=email,
         telephone=user_data.telephone,
-        mot_de_passe_hash=hashed_pwd,
-        role=user_data.role,
-        secret_mfa=mfa_sec
+        mot_de_passe_hash=hash_password(user_data.mot_de_passe),
+        role="Patient",
+        secret_mfa=mfa_secret,
     )
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
 
-    return {"message": "Utilisateur créé avec succès", "mfa_secret_genere": mfa_sec}
+    try:
+        db.add(new_user)
+        db.flush()
+        db.add(
+            JournalAudit(
+                utilisateur_id=new_user.id,
+                action="CREATION_COMPTE",
+                ressource="Compte utilisateur",
+                adresse_ip=request.client.host if request.client else None,
+            )
+        )
+        db.commit()
+        db.refresh(new_user)
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Cet e-mail est déjà utilisé.")
+    except Exception:
+        db.rollback()
+        raise
 
-# 2. Étape 1 de Connexion (Vérification des identifiants et déclenchement du challenge MFA)
+    return {
+        "message": "Compte créé. Configurez votre application d'authentification avant de vous connecter.",
+        "mfa": {
+            "secret": mfa_secret,
+            "provisioning_uri": get_totp_provisioning_uri(mfa_secret, email),
+        },
+    }
+
+
 @app.post("/api/login")
 def login(credentials: UserLogin, db: Session = Depends(get_db)):
-    user = db.query(Utilisateur).filter(Utilisateur.email == credentials.email).first()
-    if not user or not verify_password(credentials.mot_de_passe, user.mot_de_passe_hash):
-        raise HTTPException(status_code=401, detail="Identifiants incorrects.")
-    
-    return {"message": "Identifiants valides. Veuillez soumettre le code MFA/TOTP.", "email": user.email}
+    email = str(credentials.email).strip().lower()
+    user = db.query(Utilisateur).filter(Utilisateur.email == email).first()
+    if not user or not user.actif or not verify_password(
+        credentials.mot_de_passe, user.mot_de_passe_hash
+    ):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Identifiants incorrects.")
 
-# 3. Étape 2 de Connexion (Validation du code TOTP et génération du Jeton JWT)
+    if not user.secret_mfa:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="La vérification MFA n'est pas configurée pour ce compte.",
+        )
+
+    return {
+        "message": "Identifiants valides. Saisissez le code de votre application d'authentification.",
+        "challenge_token": create_mfa_challenge_token({"sub": user.email, "id": user.id}),
+    }
+
+
 @app.post("/api/mfa/verify")
 def verify_mfa(data: MFAVerify, db: Session = Depends(get_db)):
-    user = db.query(Utilisateur).filter(Utilisateur.email == data.email).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="Utilisateur introuvable.")
-    
-    # Si l'utilisateur n'a pas de secret MFA, on utilise le secret global de secours du .env
-    secret_to_use = user.secret_mfa if user.secret_mfa else TOTP_SECRET
-    
-    if not verify_totp_code(secret_to_use, data.code_totp):
-        raise HTTPException(status_code=401, detail="Code MFA/TOTP invalide.")
-    
-    # Génération du jeton JWT sécurisé
+    challenge = verify_mfa_challenge_token(data.challenge_token)
+    user_id = challenge.get("id") if challenge else None
+    if not isinstance(user_id, int):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Demande MFA invalide ou expirée.")
+
+    user = db.get(Utilisateur, user_id)
+    if not user or not user.actif or not user.secret_mfa:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Compte introuvable ou désactivé.")
+    if not verify_totp_code(user.secret_mfa, data.code_totp):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Code MFA/TOTP invalide.")
+
     token = create_access_token({"sub": user.email, "role": user.role, "id": user.id})
-    
-    # Journalisation de l'action dans la table d'audit
-    audit = JournalAudit(utilisateur_id=user.id, action="CONNEXION_MFA_REUSSIE", ressource="Auth Module")
-    db.add(audit)
-    db.commit()
-
-    return {"access_token": token, "token_type": "bearer", "role": user.role, "nom": user.nom}
-
-# 4. Création d'un dossier médical chiffré (AES-GCM) - Sécurisé par HTTP Bearer
-@app.post("/api/dossiers")
-def create_dossier(dossier: DossierCreate, request: Request, credentials: HTTPAuthorizationCredentials = Depends(security), db: Session = Depends(get_db)):
-    token = credentials.credentials
-    payload = verify_access_token(token)
-    if not payload:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Jeton JWT invalide ou expiré.")
-
-    # Chiffrement symétrique fort AES-GCM
-    contenu_chiffre = encrypt_medical_record(dossier.contenu)
-    
-    nouveau_dossier = DossierMedical(
-        patient_id=dossier.patient_id,
-        contenu_chiffre=contenu_chiffre
+    db.add(
+        JournalAudit(
+            utilisateur_id=user.id,
+            action="CONNEXION_MFA_REUSSIE",
+            ressource="Module d'authentification",
+        )
     )
-    db.add(nouveau_dossier)
-    
-    # Ajout dans le journal d'audit
-    audit = JournalAudit(
-        action="CREATION_DOSSIER_MEDICAL",
-        ressource=f"Dossier Patient ID {dossier.patient_id}",
-        adresse_ip=request.client.host if request.client else "Inconnue"
-    )
-    db.add(audit)
     db.commit()
-    
-    return {"message": "Dossier médical chiffré et enregistré avec succès (AES-GCM)."}
+    return {"access_token": token, "token_type": "bearer"}
 
-# 5. Consultation des journaux d'audit (Réservé à l'Administrateur)
+
+@app.get("/api/me")
+def get_profile(user: Utilisateur = Depends(get_current_user)):
+    return {
+        "id": user.id,
+        "nom": user.nom,
+        "prenom": user.prenom,
+        "email": user.email,
+        "role": user.role,
+    }
+
+
+@app.put("/api/consentements")
+def update_consent(
+    data: ConsentUpdate,
+    request: Request,
+    user: Utilisateur = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    require_role(user, "Patient")
+    doctor = db.get(Utilisateur, data.medecin_id)
+    if not doctor or doctor.role not in {"Médecin", "Spécialiste"} or not doctor.actif:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Praticien introuvable.")
+
+    consent = (
+        db.query(Consentement)
+        .filter(
+            Consentement.patient_id == user.id,
+            Consentement.medecin_id == data.medecin_id,
+        )
+        .first()
+    )
+    if consent:
+        consent.statut = data.statut
+    else:
+        consent = Consentement(
+            patient_id=user.id,
+            medecin_id=data.medecin_id,
+            statut=data.statut,
+        )
+        db.add(consent)
+
+    db.add(
+        JournalAudit(
+            utilisateur_id=user.id,
+            action="CONSENTEMENT_MODIFIE",
+            ressource=f"Accès du praticien {doctor.id}",
+            adresse_ip=request.client.host if request.client else None,
+        )
+    )
+    db.commit()
+    return {"message": "Consentement mis à jour.", "statut": consent.statut}
+
+
+@app.post("/api/dossiers", status_code=status.HTTP_201_CREATED)
+def create_dossier(
+    dossier: DossierCreate,
+    request: Request,
+    user: Utilisateur = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    require_role(user, "Médecin", "Spécialiste")
+    patient = db.get(Utilisateur, dossier.patient_id)
+    if not patient or patient.role != "Patient" or not patient.actif:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient introuvable.")
+
+    consent = (
+        db.query(Consentement)
+        .filter(
+            Consentement.patient_id == patient.id,
+            Consentement.medecin_id == user.id,
+            Consentement.statut.is_(True),
+        )
+        .first()
+    )
+    if not consent:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Le patient n'a pas accordé son consentement à ce praticien.",
+        )
+
+    db.add(
+        DossierMedical(
+            patient_id=patient.id,
+            contenu_chiffre=encrypt_medical_record(dossier.contenu),
+        )
+    )
+    db.add(
+        JournalAudit(
+            utilisateur_id=user.id,
+            action="CREATION_DOSSIER_MEDICAL",
+            ressource=f"Dossier patient {patient.id}",
+            adresse_ip=request.client.host if request.client else None,
+        )
+    )
+    db.commit()
+    return {"message": "Dossier médical chiffré et enregistré avec succès."}
+
+
 @app.get("/api/audit")
-def get_audit_logs(credentials: HTTPAuthorizationCredentials = Depends(security), db: Session = Depends(get_db)):
-    token = credentials.credentials
-    payload = verify_access_token(token)
-    if not payload:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Jeton JWT invalide ou expiré.")
-    
-    logs = db.query(JournalAudit).all()
-    return logs
+def get_audit_logs(
+    user: Utilisateur = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    require_role(user, "Administrateur")
+    logs = (
+        db.query(JournalAudit)
+        .order_by(JournalAudit.date_creation.desc(), JournalAudit.id.desc())
+        .limit(500)
+        .all()
+    )
+    return [
+        {
+            "id": log.id,
+            "utilisateur_id": log.utilisateur_id,
+            "action": log.action,
+            "ressource": log.ressource,
+            "adresse_ip": log.adresse_ip,
+            "date_creation": log.date_creation,
+        }
+        for log in logs
+    ]
+
+
+# La racine doit être montée après les routes API pour que celles-ci restent accessibles.
+frontend_path = Path(__file__).resolve().parents[1] / "frontend"
+if frontend_path.exists():
+    app.mount("/", StaticFiles(directory=str(frontend_path), html=True), name="frontend")
+
+Base.metadata.create_all(bind=engine)

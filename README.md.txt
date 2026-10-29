@@ -1,60 +1,36 @@
-# Telemed Secure - Plateforme de Télémédecine Simulée et Sécurisée
+# Telemed Secure
 
-**Projet M1 - Protocole de Sécurité Réseau & Cryptographie Appliquée**  
-**Groupe 22 (Gouvernance de Sécurité)**[cite: 7]
+Application de démonstration pour explorer une connexion avec MFA, le consentement d'un patient, le chiffrement des dossiers médicaux et la journalisation des actions. Utilisez uniquement des données synthétiques : ce projet ne constitue pas un service médical prêt pour des données de santé réelles.
 
-## 👥 Membres du Groupe
-* KULUMBA DORTY DON DE DIEU[cite: 7]
-* MUKENGA BAFUILA ANDRE[cite: 7]
-* NGOLO MPIDI DONEL[cite: 7]
-* LAKU ISHAKO ABEDNEGO[cite: 7]
+## Fonctionnalités présentes
 
----
+- Création publique de comptes **Patient** avec validation des champs et détection des adresses e-mail déjà utilisées.
+- Configuration manuelle d'un code TOTP avec une application d'authentification.
+- Connexion en deux étapes : mot de passe, puis code TOTP associé à une demande temporaire.
+- Sessions JWT de courte durée et vérification du compte auprès de l'API lors du chargement du tableau de bord.
+- API de consentement réservée au patient ; création d'un dossier réservée à un praticien actif ayant reçu le consentement du patient.
+- Journal d'audit consultable par un compte administrateur.
+- Interface et API servies depuis le même serveur. Les routes API sont déclarées avant les fichiers du site.
 
-## 🎯 Objectif du Projet
-Développement et déploiement d'une application web de télémédecine sécurisée permettant la consultation, la gestion des dossiers médicaux chiffrés et le suivi d'audit des accès[cite: 2, 7]. L'application garantit le respect de la vie privée, le contrôle d'accès strict et l'intégrité des données à l'aide de mécanismes cryptographiques modernes et de données de test entièrement synthétiques[cite: 2, 7].
+La création publique d'un compte médecin ou administrateur est volontairement désactivée. Le projet ne contient pas d'écran permettant de consulter les dossiers médicaux ni de gérer les consentements ; ces parcours restent à construire.
 
----
+## Lancement local
 
-## 🔒 Mécanismes de Sécurité et Cryptographie
-Conformément aux exigences minimales, la plateforme intègre :
+Prérequis : Python 3.10 ou plus récent.
 
-1. **HTTPS / TLS** : Communication chiffrée de bout en bout entre le client et le serveur backend hébergé sur Render[cite: 2, 7].
-2. **Authentification Forte (MFA / TOTP)** : Connexion sécurisée combinant mot de passe (haché via Argon2/Bcrypt) et validation par jeton TOTP à 6 chiffres[cite: 7].
-3. **Contrôle d'Accès basé sur les Rôles (RBAC)** : Gestion personnalisée des permissions pour les rôles **Patient**, **Médecin / Praticien** et **Administrateur**[cite: 7].
-4. **Chiffrement Authentifié (AES-256-GCM)** : Chiffrement symétrique des données sensibles des dossiers médicaux au repos dans la base de données PostgreSQL[cite: 7].
-5. **Journal d'Audit et Traçabilité Immuable** : Enregistrement de chaque tentative d'accès, modification ou consultation avec horodatage et rôle de l'utilisateur[cite: 7].
-6. **Sécurisation des Sessions & API** : Utilisation de jetons **JWT (JSON Web Tokens)** signés à courte durée de vie.
+1. Copiez `.env.example` vers `.env` à la racine du projet.
+2. Remplacez `SECRET_KEY` par une valeur aléatoire de plus de 32 octets. SQLite est configuré pour le développement local ; la première exécution crée `telemed_secure.db`.
+3. Installez les dépendances : `python -m pip install -r backend/requirements.txt`.
+4. Depuis la racine du dépôt, lancez : `uvicorn backend.main:app --reload`.
+5. Ouvrez `http://127.0.0.1:8000` et créez un compte patient. La clé MFA et le lien de configuration sont affichés immédiatement après l'inscription ; enregistrez-les dans votre application d'authentification.
 
----
+Pour utiliser PostgreSQL, définissez `DATABASE_URL` dans `.env`. Pour conserver les dossiers chiffrés entre les redémarrages et les déploiements, définissez également `AES_ENCRYPTION_KEY` avec une clé AES de 32 octets encodée en base64 et conservez-la dans le gestionnaire de secrets de l'hébergeur. Ne changez pas cette clé après avoir chiffré des dossiers.
 
-## 🏗️ Architecture du Système
-* **Backend** : FastAPI (Python) - Gestion des API RESTful, authentification JWT, hachage, chiffrement et ORM[cite: 1].
-* **Frontend** : HTML5, CSS3, JavaScript (Vanilla ES6) - Interface dynamique connectée à l'API[cite: 1].
-* **Base de données** : PostgreSQL hébergée sur Render - Persistance sécurisée des données de test[cite: 1].
-* **Déploiement Cloud** : Render Web Service[cite: 1, 2].
+Si le frontend est hébergé sur un domaine séparé, renseignez `CORS_ORIGINS` avec la liste exacte de ses origines, séparées par des virgules. La configuration du déploiement Render attend `DATABASE_URL`, `SECRET_KEY` et, en production, `AES_ENCRYPTION_KEY`.
 
----
+## Limites à connaître
 
-## 🔑 Identifiants de Démonstration (Soutenance)
-
-| Rôle | E-mail | Mot de Passe | Code MFA (TOTP) |
-| :--- | :--- | :--- | :--- |
-| **Patient** | `patient@telemed.test` | `Patient123!` | Généré via app TOTP / Config de test |
-| **Médecin** | `medecin@telemed.test` | `Medecin123!` | Généré via app TOTP / Config de test |
-| **Admin** | `admin@telemed.test` | `Admin123!` | Généré via app TOTP / Config de test |
-
----
-
-## 🚀 Installation et Lancement Local
-
-### Prérequis
-* Python 3.10+
-* PostgreSQL local ou connexion distante
-* Pipenv / Virtualenv
-
-### Étapes
-1. **Cloner le dépôt :**
-   ```bash
-   git clone https://github.com/Dorty-Kulumba/telemed-secure.git
-cd telemed-secure
+- Les comptes Patient sont les seuls créables depuis l'interface. Aucun flux d'administration initiale des médecins et administrateurs n'est fourni.
+- Le tableau de bord présente encore une partie des fonctions comme information : l'interface patient de consentement, la consultation des dossiers et le flux praticien doivent être réalisés.
+- La rotation des clés, la récupération de compte, les limites contre les tentatives répétées, les migrations de base de données, la sauvegarde/restauration et la supervision de production ne sont pas encore configurées.
+- N'utilisez aucune donnée personnelle ou médicale réelle dans cette version de démonstration.

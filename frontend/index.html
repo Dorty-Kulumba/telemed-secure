@@ -3,266 +3,100 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Telemed Secure - Connexion</title>
-    <style>
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: #f4f7f6;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            margin: 0;
-        }
-        .login-card {
-            background: white;
-            padding: 40px;
-            border-radius: 12px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-            width: 100%;
-            max-width: 400px;
-        }
-        .logo-container {
-            text-align: center;
-            margin-bottom: 20px;
-        }
-        .logo-badge {
-            background-color: #0b6623;
-            color: white;
-            font-size: 24px;
-            font-weight: bold;
-            display: inline-block;
-            padding: 10px 15px;
-            border-radius: 8px;
-        }
-        h2 {
-            text-align: center;
-            color: #333;
-            margin-bottom: 5px;
-        }
-        .subtitle {
-            text-align: center;
-            color: #666;
-            font-size: 14px;
-            margin-bottom: 25px;
-        }
-        .form-group {
-            margin-bottom: 20px;
-        }
-        label {
-            display: block;
-            margin-bottom: 8px;
-            color: #333;
-            font-weight: 500;
-        }
-        input {
-            width: 100%;
-            padding: 12px;
-            border: 1px solid #ccc;
-            border-radius: 6px;
-            font-size: 14px;
-            box-sizing: border-box;
-        }
-        button {
-            width: 100%;
-            padding: 12px;
-            background-color: #0b6623;
-            color: white;
-            border: none;
-            border-radius: 6px;
-            font-size: 16px;
-            font-weight: bold;
-            cursor: pointer;
-            transition: background 0.3s;
-        }
-        button:hover {
-            background-color: #084e1b;
-        }
-        .footer-links {
-            display: flex;
-            justify-content: space-between;
-            margin-top: 20px;
-            font-size: 13px;
-        }
-        .footer-links a {
-            color: #0b6623;
-            text-decoration: none;
-        }
-        .footer-links a:hover {
-            text-decoration: underline;
-        }
-        .hidden {
-            display: none;
-        }
-    </style>
+    <meta name="theme-color" content="#0f766e">
+    <title>Telemed Secure — Connexion</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="script.js" defer></script>
 </head>
 <body>
-
-    <div class="login-card">
-        <div class="logo-container">
-            <div class="logo-badge">+</div>
+    <main class="container auth-card">
+        <div class="logo-container" aria-hidden="true">
+            <div class="logo-icon">+</div>
         </div>
-        <h2>Telemed Secure</h2>
-        <div class="subtitle">Bienvenue sur la plateforme</div>
+        <h1>Telemed Secure</h1>
+        <p class="subtitle">Votre espace de santé sécurisé</p>
 
-        <!-- Formulaire de Connexion -->
-        <div id="login-section">
-            <form id="form-login">
+        <section id="login-section" aria-labelledby="login-title">
+            <h2 id="login-title" class="section-title">Connexion</h2>
+            <form id="form-login" novalidate>
                 <div class="form-group">
-                    <label for="email">Adresse e-mail ou numéro de téléphone</label>
-                    <input type="text" id="email" required placeholder="exemple@gmail.com">
+                    <label for="email">Adresse e-mail</label>
+                    <input type="email" id="email" name="email" autocomplete="email" required maxlength="150" placeholder="exemple@domaine.com">
                 </div>
                 <div class="form-group">
                     <label for="password">Mot de passe</label>
-                    <input type="password" id="password" required placeholder="••••••••">
+                    <input type="password" id="password" name="password" autocomplete="current-password" required maxlength="72">
                 </div>
-                <button type="submit">Se connecter</button>
+                <p id="login-message" class="status-message" role="status" aria-live="polite"></p>
+                <button class="btn" type="submit">Se connecter</button>
             </form>
-
-            <div class="footer-links">
-                <a href="#" onclick="alert('Fonctionnalité de récupération de mot de passe sécurisée.')">Mot de passe oublié ?</a>
-                <a href="#" onclick="toggleView('register-section')">Créer un compte</a>
+            <div class="auth-footer">
+                <button type="button" class="link-button" data-view="register-section">Créer un compte</button>
             </div>
-        </div>
+        </section>
 
-        <!-- Formulaire d'Inscription (Accessible via le lien) -->
-        <div id="register-section" class="hidden">
-            <form id="form-register">
+        <section id="register-section" class="hidden" aria-labelledby="register-title">
+            <h2 id="register-title" class="section-title">Créer un compte patient</h2>
+            <p class="form-note">Tous les champs marqués d'un astérisque sont obligatoires. Un code MFA sera nécessaire à chaque connexion.</p>
+            <form id="form-register" novalidate>
                 <div class="form-group">
-                    <label>Nom</label>
-                    <input type="text" id="reg-nom" required>
+                    <label for="reg-nom">Nom *</label>
+                    <input type="text" id="reg-nom" name="nom" autocomplete="family-name" required maxlength="100">
                 </div>
                 <div class="form-group">
-                    <label>Prénom</label>
-                    <input type="text" id="reg-prenom" required>
+                    <label for="reg-prenom">Prénom *</label>
+                    <input type="text" id="reg-prenom" name="prenom" autocomplete="given-name" required maxlength="100">
                 </div>
                 <div class="form-group">
-                    <label>Adresse e-mail</label>
-                    <input type="email" id="reg-email" required>
+                    <label for="reg-email">Adresse e-mail *</label>
+                    <input type="email" id="reg-email" name="email" autocomplete="email" required maxlength="150" placeholder="exemple@domaine.com">
                 </div>
                 <div class="form-group">
-                    <label>Téléphone</label>
-                    <input type="text" id="reg-tel" required>
+                    <label for="reg-tel">Téléphone (facultatif)</label>
+                    <input type="tel" id="reg-tel" name="telephone" autocomplete="tel" maxlength="50">
                 </div>
                 <div class="form-group">
-                    <label>Mot de passe</label>
-                    <input type="password" id="reg-password" required>
+                    <label for="reg-password">Mot de passe *</label>
+                    <input type="password" id="reg-password" name="mot_de_passe" autocomplete="new-password" required minlength="8" maxlength="72" aria-describedby="password-help">
+                    <small id="password-help" class="field-help">8 caractères minimum.</small>
                 </div>
-                <div class="form-group">
-                    <label>Rôle</label>
-                    <input type="text" id="reg-role" value="Patient" readonly>
-                </div>
-                <button type="submit">S'inscrire</button>
+                <p class="form-note">Le rôle Patient est attribué automatiquement à la création du compte.</p>
+                <p id="register-message" class="status-message" role="status" aria-live="polite"></p>
+                <button class="btn" type="submit">Créer mon compte</button>
             </form>
-            <div class="footer-links" style="justify-content: center;">
-                <a href="#" onclick="toggleView('login-section')">← Retour à la connexion</a>
+            <div class="auth-footer auth-footer-center">
+                <button type="button" class="link-button" data-view="login-section">← Retour à la connexion</button>
             </div>
-        </div>
+        </section>
 
-        <!-- Section MFA / Vérification du code -->
-        <div id="mfa-section" class="hidden">
-            <div class="subtitle" style="color: #d9534f; font-weight: bold;">Vérification de sécurité (MFA)</div>
-            <form id="form-mfa">
+        <section id="enrollment-section" class="hidden" aria-labelledby="enrollment-title">
+            <h2 id="enrollment-title" class="section-title">Configurez votre MFA</h2>
+            <p>Ajoutez ce compte à une application d'authentification (par exemple Google Authenticator, Microsoft Authenticator ou Aegis), puis utilisez le code à 6 chiffres pour vous connecter.</p>
+            <div class="enrollment-panel">
+                <p><strong>Clé secrète à saisir dans l'application :</strong></p>
+                <code id="mfa-secret" class="code-display"></code>
+                <a id="mfa-uri-link" class="link-button link-anchor" href="#">Ouvrir dans une application compatible</a>
+            </div>
+            <p class="form-note">Gardez cette clé privée. Elle ne pourra plus être affichée après avoir quitté cette page.</p>
+            <p id="enrollment-message" class="status-message" role="status" aria-live="polite"></p>
+            <button id="continue-login" class="btn" type="button">J'ai configuré mon application</button>
+        </section>
+
+        <section id="mfa-section" class="hidden" aria-labelledby="mfa-title">
+            <h2 id="mfa-title" class="section-title">Vérification de sécurité</h2>
+            <p class="subtitle">Saisissez le code temporaire de votre application d'authentification.</p>
+            <form id="form-mfa" novalidate>
                 <div class="form-group">
-                    <label for="mfa-code">Code de vérification (TOTP)</label>
-                    <input type="text" id="mfa-code" maxlength="6" required placeholder="000000" style="text-align: center; font-size: 20px; letter-spacing: 5px;">
+                    <label for="mfa-code">Code à 6 chiffres</label>
+                    <input type="text" id="mfa-code" name="code_totp" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" minlength="6" maxlength="6" required placeholder="000000" aria-describedby="mfa-message">
                 </div>
-                <button type="submit">Vérifier le code</button>
+                <p id="mfa-message" class="status-message" role="status" aria-live="polite"></p>
+                <button class="btn" type="submit">Vérifier et continuer</button>
             </form>
-            <div class="footer-links" style="justify-content: center; margin-top: 15px;">
-                <a href="#" onclick="toggleView('login-section')">← Retour à la connexion</a>
+            <div class="auth-footer auth-footer-center">
+                <button type="button" class="link-button" data-view="login-section">← Retour à la connexion</button>
             </div>
-        </div>
-    </div>
-
-    <script>
-        let currentUserEmail = "";
-
-        function toggleView(sectionId) {
-            document.getElementById('login-section').classList.add('hidden');
-            document.getElementById('register-section').classList.add('hidden');
-            document.getElementById('mfa-section').classList.add('hidden');
-            document.getElementById(sectionId).classList.remove('hidden');
-        }
-
-        // Gestion de la connexion (Étape 1)
-        document.getElementById('form-login').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const email = document.getElementById('email').value;
-            const mot_de_passe = document.getElementById('password').value;
-
-            try {
-                const response = await fetch('/api/login', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email, mot_de_passe })
-                });
-                const data = await response.json();
-                if (response.ok) {
-                    currentUserEmail = email;
-                    alert("Identifiants valides ! Veuillez saisir votre code MFA.");
-                    toggleView('mfa-section');
-                } else {
-                    alert("Erreur : " + (data.detail || "Identifiants incorrects"));
-                }
-            } catch (err) {
-                alert("Erreur de connexion au serveur.");
-            }
-        });
-
-        // Gestion de la validation MFA (Étape 2)
-        document.getElementById('form-mfa').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const code_totp = document.getElementById('mfa-code').value;
-
-            try {
-                const response = await fetch('/api/mfa/verify', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email: currentUserEmail, code_totp })
-                });
-                const data = await response.json();
-                if (response.ok) {
-                    localStorage.setItem('token', data.access_token);
-                    alert("Connexion réussie ! Bienvenue " + data.nom);
-                    // Redirection ou affichage du tableau de bord selon le rôle
-                } else {
-                    alert("Code MFA invalide : " + (data.detail || "Vérifiez votre application d'authentification"));
-                }
-            } catch (err) {
-                alert("Erreur lors de la vérification MFA.");
-            }
-        });
-
-        // Gestion de l'inscription
-        document.getElementById('form-register').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const payload = {
-                nom: document.getElementById('reg-nom').value,
-                prenom: document.getElementById('reg-prenom').value,
-                email: document.getElementById('reg-email').value,
-                telephone: document.getElementById('reg-tel').value,
-                mot_de_passe: document.getElementById('reg-password').value,
-                role: document.getElementById('reg-role').value
-            };
-
-            try {
-                const response = await fetch('/api/register', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-                const data = await response.json();
-                if (response.ok) {
-                    alert("Compte créé avec succès ! Vous pouvez vous connecter.");
-                    toggleView('login-section');
-                } else {
-                    alert("Erreur : " + (data.detail || "Échec de l'inscription"));
-                }
-            } catch (err) {
-                alert("Erreur réseau lors de l'inscription.");
-            }
-        });
-    </script>
+        </section>
+    </main>
 </body>
 </html>

@@ -1,74 +1,112 @@
-import os
 import base64
-from datetime import datetime, timedelta
-from passlib.context import CryptContext
-from jose import JWTError, jwt
+import hashlib
+import hmac
+import os
+from datetime import datetime, timedelta, timezone
+
 import pyotp
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-from dotenv import load_dotenv
+from jose import JWTError, jwt
+from passlib.context import CryptContext
 
-load_dotenv()
+SECRET_KEY = os.getenv("SECRET_KEY")
+if not SECRET_KEY or len(SECRET_KEY.encode("utf-8")) < 32:
+    raise RuntimeError("SECRET_KEY doit être définie et contenir au moins 32 octets.")
 
-# Récupération des secrets depuis l'environnement (Règle : jamais de secrets dans le code)
-SECRET_KEY = os.getenv("SECRET_KEY", "cle_secrete_par_defaut_a_changer")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
+MFA_CHALLENGE_EXPIRE_MINUTES = 5
 
-# Clé AES-GCM (doit faire 32 octets pour AES-256). Si non définie, on en génère une temporaire pour le test.
-AES_KEY_ENV = os.getenv("AES_ENCRYPTION_KEY")
-if AES_KEY_ENV:
-    # On s'assure qu'elle est sous forme de bytes (encodée en base64 ou chaîne directe)
-    try:
-        AES_KEY = base64.b64decode(AES_KEY_ENV)
-    except Exception:
-        AES_KEY = AES_KEY_ENV.encode()[:32].ljust(32, b'\0')
-else:
-    AES_KEY = AESGCM.generate_key(bit_length=256)
 
+def _load_aes_key() -> bytes:
+    configured_key = os.getenv("AES_ENCRYPTION_KEY")
+    if configured_key:
+        try:
+            key = base64.b64decode(configured_key, validate=True)
+        except (ValueError, base64.binascii.Error) as exc:
+            raise RuntimeError("AES_ENCRYPTION_KEY doit être une clé AES-256 encodée en base64.") from exc
+        if len(key) != 32:
+            raise RuntimeError("AES_ENCRYPTION_KEY doit décoder exactement 32 octets.")
+        return key
+
+    # Clé stable en développement; en production, définir une clé AES dédiée.
+    return hmac.new(
+        SECRET_KEY.encode("utf-8"),
+        b"telemed-secure-medical-records-aes-256-gcm-v1",
+        hashlib.sha256,
+    ).digest()
+
+
+AES_KEY = _load_aes_key()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-# 1. Hachage et vérification des mots de passe (Bcrypt)
+
 def hash_password(password: str) -> str:
     return pwd_context.hash(password)
+
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
-# 2. Gestion des Jetons d'Accès JWT
-def create_access_token(data: dict, expires_delta: timedelta | None = None):
-    to_encode = data.copy()
-    expire = datetime.utcnow() + (expires_delta if expires_delta else timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
-    to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
-def verify_access_token(token: str):
+def _create_token(data: dict, expires_delta: timedelta, token_type: str) -> str:
+    payload = data.copy()
+    payload["token_type"] = token_type
+    payload["exp"] = datetime.now(timezone.utc) + expires_delta
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+
+
+def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
+    return _create_token(
+        data,
+        expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
+        "access",
+    )
+
+
+def create_mfa_challenge_token(data: dict) -> str:
+    return _create_token(data, timedelta(minutes=MFA_CHALLENGE_EXPIRE_MINUTES), "mfa_challenge")
+
+
+def _decode_token(token: str, expected_type: str) -> dict | None:
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        return payload
     except JWTError:
         return None
+    if payload.get("token_type") != expected_type:
+        return None
+    return payload
 
-# 3. Authentification Multifacteur (MFA / TOTP RFC 6238)
+
+def verify_access_token(token: str) -> dict | None:
+    return _decode_token(token, "access")
+
+
+def verify_mfa_challenge_token(token: str) -> dict | None:
+    return _decode_token(token, "mfa_challenge")
+
+
 def generate_totp_secret() -> str:
     return pyotp.random_base32()
 
-def verify_totp_code(secret: str, code: str) -> bool:
-    totp = pyotp.TOTP(secret)
-    # valid_window=1 permet d'accepter le code de la période précédente ou suivante (tolérance de 30s)
-    return totp.verify(code, valid_window=1)
 
-# 4. Chiffrement et Déchiffrement des Dossiers Médicaux (AES-GCM)
+def get_totp_provisioning_uri(secret: str, email: str) -> str:
+    return pyotp.TOTP(secret).provisioning_uri(name=email, issuer_name="Telemed Secure")
+
+
+def verify_totp_code(secret: str, code: str) -> bool:
+    return pyotp.TOTP(secret).verify(code, valid_window=1)
+
+
 def encrypt_medical_record(data: str) -> str:
-    aesgcm = AESGCM(AES_KEY)
-    nonce = os.urandom(12)  # Nonce aléatoire de 12 octets recommandé pour GCM
-    encrypted_data = aesgcm.encrypt(nonce, data.encode('utf-8'), None)
-    # On retourne le nonce + le texte chiffré encodés en base64 pour le stockage en base de données
-    return base64.b64encode(nonce + encrypted_data).decode('utf-8')
+    nonce = os.urandom(12)
+    encrypted_data = AESGCM(AES_KEY).encrypt(nonce, data.encode("utf-8"), None)
+    return base64.b64encode(nonce + encrypted_data).decode("ascii")
+
 
 def decrypt_medical_record(encrypted_b64: str) -> str:
-    aesgcm = AESGCM(AES_KEY)
-    raw_data = base64.b64decode(encrypted_b64.encode('utf-8'))
-    nonce = raw_data[:12]
-    encrypted_data = raw_data[12:]
-    decrypted_data = aesgcm.decrypt(nonce, encrypted_data, None)
-    return decrypted_data.decode('utf-8')
+    raw_data = base64.b64decode(encrypted_b64.encode("ascii"), validate=True)
+    if len(raw_data) < 12 + 16:
+        raise ValueError("Données chiffrées invalides.")
+    nonce, encrypted_data = raw_data[:12], raw_data[12:]
+    return AESGCM(AES_KEY).decrypt(nonce, encrypted_data, None).decode("utf-8")
