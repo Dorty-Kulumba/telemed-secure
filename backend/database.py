@@ -2,6 +2,7 @@ import os
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy.pool import StaticPool
 
 SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./telemed_secure.db")
 if SQLALCHEMY_DATABASE_URL.startswith("postgres://"):
@@ -10,6 +11,8 @@ if SQLALCHEMY_DATABASE_URL.startswith("postgres://"):
 engine_options = {"pool_pre_ping": True}
 if SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
     engine_options["connect_args"] = {"check_same_thread": False}
+    if SQLALCHEMY_DATABASE_URL in {"sqlite://", "sqlite:///:memory:"}:
+        engine_options["poolclass"] = StaticPool
 
 engine = create_engine(SQLALCHEMY_DATABASE_URL, **engine_options)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

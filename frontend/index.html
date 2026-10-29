@@ -76,6 +76,8 @@
                 <p><strong>Clé secrète à saisir dans l'application :</strong></p>
                 <code id="mfa-secret" class="code-display"></code>
                 <a id="mfa-uri-link" class="link-button link-anchor" href="#">Ouvrir dans une application compatible</a>
+                <p class="form-note recovery-note"><strong>Codes de secours — gardez-les hors de cet appareil :</strong></p>
+                <pre id="registration-recovery-codes" class="recovery-codes"></pre>
             </div>
             <p class="form-note">Gardez cette clé privée. Elle ne pourra plus être affichée après avoir quitté cette page.</p>
             <p id="enrollment-message" class="status-message" role="status" aria-live="polite"></p>
@@ -86,13 +88,20 @@
             <h2 id="mfa-title" class="section-title">Vérification de sécurité</h2>
             <p class="subtitle">Saisissez le code temporaire de votre application d'authentification.</p>
             <form id="form-mfa" novalidate>
-                <div class="form-group">
+                <div id="mfa-totp-group" class="form-group">
                     <label for="mfa-code">Code à 6 chiffres</label>
                     <input type="text" id="mfa-code" name="code_totp" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" minlength="6" maxlength="6" required placeholder="000000" aria-describedby="mfa-message">
+                </div>
+                <div id="mfa-recovery-group" class="form-group hidden">
+                    <label for="mfa-recovery-code">Code de secours</label>
+                    <input type="text" id="mfa-recovery-code" name="recovery_code" autocomplete="off" maxlength="16" pattern="[0-9A-Fa-f]{16}" aria-describedby="mfa-message">
                 </div>
                 <p id="mfa-message" class="status-message" role="status" aria-live="polite"></p>
                 <button class="btn" type="submit">Vérifier et continuer</button>
             </form>
+            <div class="auth-footer auth-footer-center">
+                <button id="toggle-recovery-code" type="button" class="link-button">Utiliser un code de secours</button>
+            </div>
             <div class="auth-footer auth-footer-center">
                 <button type="button" class="link-button" data-view="login-section">← Retour à la connexion</button>
             </div>

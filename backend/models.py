@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, Boolean, ForeignKey, DateTime
+from sqlalchemy import Column, Integer, String, Text, Boolean, ForeignKey, DateTime, false, text
 from sqlalchemy.sql import func
 from .database import Base
 
@@ -13,6 +13,8 @@ class Utilisateur(Base):
     mot_de_passe_hash = Column(String(255), nullable=False)
     role = Column(String(50), nullable=False)  # Patient, Médecin, Administrateur
     secret_mfa = Column(String(100), nullable=True)
+    mot_de_passe_a_changer = Column(Boolean, default=False, server_default=false(), nullable=False)
+    token_version = Column(Integer, default=0, server_default=text("0"), nullable=False)
     actif = Column(Boolean, default=True)
     date_creation = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -43,3 +45,13 @@ class JournalAudit(Base):
     ressource = Column(String(255), nullable=False)
     adresse_ip = Column(String(50), nullable=True)
     date_creation = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class MFARecoveryCode(Base):
+    __tablename__ = "codes_recuperation_mfa"
+
+    id = Column(Integer, primary_key=True, index=True)
+    utilisateur_id = Column(Integer, ForeignKey("utilisateurs.id", ondelete="CASCADE"), nullable=False, index=True)
+    code_hash = Column(String(64), nullable=False, unique=True, index=True)
+    date_creation = Column(DateTime(timezone=True), server_default=func.now())
+    utilise_le = Column(DateTime(timezone=True), nullable=True)

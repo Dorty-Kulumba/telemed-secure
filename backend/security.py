@@ -2,6 +2,7 @@ import base64
 import hashlib
 import hmac
 import os
+import secrets
 from datetime import datetime, timedelta, timezone
 
 import pyotp
@@ -96,6 +97,19 @@ def get_totp_provisioning_uri(secret: str, email: str) -> str:
 
 def verify_totp_code(secret: str, code: str) -> bool:
     return pyotp.TOTP(secret).verify(code, valid_window=1)
+
+
+def generate_recovery_codes(count: int = 10) -> list[str]:
+    return [secrets.token_hex(8).upper() for _ in range(count)]
+
+
+def hash_recovery_code(code: str) -> str:
+    normalized = code.strip().upper().encode("ascii")
+    return hmac.new(
+        SECRET_KEY.encode("utf-8"),
+        b"telemed-secure-mfa-recovery-v1:" + normalized,
+        hashlib.sha256,
+    ).hexdigest()
 
 
 def encrypt_medical_record(data: str) -> str:
